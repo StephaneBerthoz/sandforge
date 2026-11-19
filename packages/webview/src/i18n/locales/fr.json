@@ -5929,7 +5929,8 @@
       "selectedCount": "{{count}} sur {{total}} objets sélectionnés",
       "notInTarget": "Absent de l'org cible, ou son utilisateur ne le voit pas : déployez-le (Comparaison), ou accordez Lire et Créer dessus dans un ensemble d'autorisations",
       "notCreateableInTarget": "L'utilisateur avec lequel SandForge écrit ne peut pas en créer dans l'org cible : accordez-y Créer dessus dans un ensemble d'autorisations",
-      "countShown": "Compter les enregistrements des objets affichés ({{objects}})"
+      "countShown": "Compter les enregistrements des objets affichés ({{objects}})",
+      "copyForAdmin": "Copier pour l'administrateur de la cible ce qu'il faut aux objets affichés ({{objects}})"
     },
     "step3": {
       "selectFramework": "Sélectionner un cadre de conformité",
@@ -9620,6 +9621,15 @@
       "broughtBack_one": "{{formatted}} enregistrement rendu",
       "broughtBack_other": "{{formatted}} enregistrements rendus",
       "refused": "{{formatted}} refusés"
+    }
+  },
+  "adminCopy": {
+    "copy": "Copier pour l'administrateur de la cible",
+    "copied": "Copié",
+    "heading": "Modifications à faire dans la Configuration de {{org}} pour que SandForge y écrive les enregistrements de ces objets :",
+    "step": {
+      "deploy": "Déployer {{object}} dans {{org}} s'il n'y est pas (dans SandForge : Comparaison, puis Déployer depuis le diff), puis donner à l'utilisateur sous lequel SandForge écrit les droits de lecture et de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+      "grantCreate": "Donner à l'utilisateur sous lequel SandForge écrit le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}})."
     }
   }
 }

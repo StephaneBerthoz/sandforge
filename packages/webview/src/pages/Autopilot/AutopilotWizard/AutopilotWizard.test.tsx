@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { AutopilotGraph, AutopilotObjectListing, ExecutionPlan } from '@sandforge/shared';
 import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
 import '../../../i18n';
@@ -322,6 +322,33 @@ describe('AutopilotWizard', () => {
       'Invoice__c',
     ]);
     expect((screen.getByTestId('select-all-checkbox') as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('names the target by its alias in what it copies for the target’s admin', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const { rerender } = render(wizard());
+    connectOrgs();
+    listState = {
+      ...listState,
+      data: {
+        objects: [
+          ...LISTING,
+          { apiName: 'Ghost__c', label: 'Ghost', custom: true, missingInTarget: true },
+        ],
+      },
+    };
+    rerender(wizard());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('step2-admin-copy'));
+    });
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Changes to make in the Setup of QASandbox .*\n\n- Deploy Ghost__c to QASandbox /,
+      ),
+    );
+    vi.unstubAllGlobals();
   });
 
   it('should show an error banner when the listing fails', () => {

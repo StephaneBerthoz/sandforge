@@ -852,6 +852,7 @@ const FROZEN_RELOAD_PLAN = {
     {
       objectApiName: 'ErrorLog__c',
       reason: 'Not createable in target org: 1 record of the dataset not loaded',
+      cause: 'notCreateable',
     },
   ],
   removals: [
@@ -939,6 +940,7 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       {
         objectApiName: 'RevenueTransactionErrorLog',
         reason: 'Not createable in target org: 1 record of the dataset not loaded',
+        cause: 'notCreateable',
       },
     ],
     removals: [],
@@ -7615,6 +7617,8 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('object-Shipment__c-missing').waitFor({ state: 'visible' });
       await page.getByTestId('object-Warranty__c-not-createable').waitFor({ state: 'visible' });
       await page.getByTestId('count-shown-button').waitFor({ state: 'visible' });
+      // And the copy of what the two need of the target's admin.
+      await page.getByTestId('step2-admin-copy').waitFor({ state: 'visible' });
       const step2 = await checkAccessibility(page);
       expectNoViolations(step2);
 
@@ -14480,6 +14484,7 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-report-excluded')
+        .getByTestId('frozen-report-admin-copy')
         .waitFor({ state: 'visible', timeout: 10_000 });
       await expect(page.getByTestId('frozen-report-failures').locator('tbody tr')).toHaveCount(3, {
         timeout: 10_000,
@@ -14704,6 +14709,7 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-preview-excluded')
+        .getByTestId('frozen-preview-admin-copy')
         .waitFor({ state: 'visible', timeout: 10_000 });
       // The target's validation rules and the defaults numbered per record, read too.
       await page
@@ -15957,11 +15963,23 @@ for (const theme of SCANNED_THEMES) {
       await expectMeasuredReadable(page, theme, byTestId('clone-error'));
     });
 
-    test('Seed Clone preview refused for an object the target does not show', async ({ page }) => {
+    test('Seed Clone preview refused for an object the target does not show, and the copy for the admin', async ({
+      page,
+    }) => {
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
       await openModule(bridge, page, 'seed');
       await refuseClonePreviewForMissingObject(bridge, page);
 
-      await expectMeasuredReadable(page, theme, byTestId('clone-error'));
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('clone-error'),
+        byTestId('clone-admin-copy'),
+      );
+
+      await page.getByTestId('clone-admin-copy').click();
+      await expect(page.getByTestId('clone-admin-copy-copied')).toHaveText('Copied');
+      await expectMeasuredReadable(page, theme, byTestId('clone-admin-copy-copied'));
     });
 
     test('CSV import refused for its storage, saying how many rows fit', async ({ page }) => {

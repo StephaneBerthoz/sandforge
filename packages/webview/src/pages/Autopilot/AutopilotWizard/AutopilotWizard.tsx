@@ -473,6 +473,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               onToggleAll={handleToggleAll}
               onCountShown={handleCountShown}
               counting={countLoading}
+              targetOrg={orgDisplayName(targetOrg, targetOrgId ?? '')}
             />
             {scanMutation.loading && (
               <p

@@ -5929,7 +5929,8 @@
       "selectedCount": "{{count}} von {{total}} Objekten ausgewählt",
       "notInTarget": "Nicht in der Ziel-Org, oder ihr Benutzer sieht es nicht: Stellen Sie es dort bereit (Vergleich) oder gewähren Sie Lesen und Erstellen in einem Berechtigungssatz",
       "notCreateableInTarget": "Der Benutzer, mit dem SandForge schreibt, darf diese in der Ziel-Org nicht erstellen: Gewähren Sie dort Erstellen in einem Berechtigungssatz",
-      "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})"
+      "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})",
+      "copyForAdmin": "Für den Administrator des Ziels kopieren, was die angezeigten Objekte brauchen ({{objects}})"
     },
     "step3": {
       "selectFramework": "Wählen Sie ein Compliance-Framework",
@@ -9620,6 +9621,15 @@
       "broughtBack_one": "{{formatted}} Datensatz zurückgeholt",
       "broughtBack_other": "{{formatted}} Datensätze zurückgeholt",
       "refused": "{{formatted}} verweigert"
+    }
+  },
+  "adminCopy": {
+    "copy": "Für den Administrator des Ziels kopieren",
+    "copied": "Kopiert",
+    "heading": "Änderungen im Setup von {{org}}, damit SandForge die Datensätze dieser Objekte dort schreibt:",
+    "step": {
+      "deploy": "{{object}} in {{org}} bereitstellen, falls es dort fehlt (in SandForge: Vergleich, dann Aus Diff bereitstellen), dann dem Benutzer, mit dem SandForge schreibt, Lese- und Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+      "grantCreate": "Dem Benutzer, mit dem SandForge schreibt, das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}})."
     }
   }
 }

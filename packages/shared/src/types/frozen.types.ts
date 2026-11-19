@@ -516,6 +516,20 @@ export interface FrozenManifestInfo {
 }
 
 /**
+ * An object the load does not send, with why: the extension's sentence in
+ * `reason`, and in `cause` what the target lacks. `notInTarget`: the target
+ * would not describe the object — it has no such object, or the user the load
+ * writes as may not see it; `notCreateable`: that user may not create its
+ * records. The panel builds the steps it copies for the target's admin from
+ * `cause`. Absent from a report kept before it was given.
+ */
+export interface FrozenExcludedObject {
+  objectApiName: string;
+  reason: string;
+  cause?: 'notInTarget' | 'notCreateable';
+}
+
+/**
  * A field removed during schema alignment — always listed, never silent.
  * `may-hold-masks`: a field the target encrypts, of a dataset whose manifest
  * does not say its extraction left out the encrypted fields it read masked
@@ -679,7 +693,7 @@ export interface FrozenLoadReportInfo {
   startedAt: string;
   durationMs: number;
   alignment: {
-    excludedObjects: Array<{ objectApiName: string; reason: string }>;
+    excludedObjects: FrozenExcludedObject[];
     removals: FrozenFieldRemoval[];
     adjustments: FrozenPicklistAdjustment[];
     recordTypeIssues: FrozenRecordTypeIssue[];
@@ -905,7 +919,7 @@ export interface FrozenLoadPlanInfo {
   /** Per object, in the order the load writes them, then the objects only a reload's purge reaches. */
   perObject: FrozenLoadPlanObject[];
   /** Each object the load would not send, and why. */
-  excludedObjects: Array<{ objectApiName: string; reason: string }>;
+  excludedObjects: FrozenExcludedObject[];
   /** Each field dropped at alignment, and how many records hold a value of it. */
   removals: FrozenFieldRemoval[];
   /** The technical placeholders the load would create for required lookups, and the records each fills. */

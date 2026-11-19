@@ -12,6 +12,7 @@ import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useMessageListener } from '../../../hooks/useMessageBus';
 import { formatNumber, roundedUpMegabytes } from '../../../utils/formatters';
 import { listWords } from '../../../utils/listWords';
+import { objectAdminText } from '../../../utils/objectAdminText';
 import { panelRefusalWords, runCheckpointOf } from '../../../utils/runCheckpoint';
 
 /** Clone wizard step identifiers. */
@@ -220,6 +221,13 @@ export interface UseCloneReturn {
   /** Error message, if any. */
   error: string | null;
   /**
+   * What the target's admin has to do for the object the shown refusal
+   * names as one the target does not show — deploy it, give Read and Create
+   * on it — as it is copied for them. Empty beside any other error, and once
+   * that one is gone.
+   */
+  adminCopy: string;
+  /**
    * Whether the run writes the email addresses and phone numbers as the
    * source holds them; off, every address goes in under `.invalid` and every
    * phone number as a fictional one.
@@ -280,6 +288,16 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   const [keepContactPoints, setKeepContactPoints] = useState(false);
   const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [stoppedCheckpoint, setStoppedCheckpoint] = useState<RunCheckpointInfo | undefined>();
+  /*
+   * The object a preview's refusal named as one the target does not show,
+   * with the org and the words the banner says it in: what is copied for the
+   * target's admin goes with that banner, and no other.
+   */
+  const [notInTarget, setNotInTarget] = useState<{
+    object: string;
+    org: string;
+    said: string;
+  } | null>(null);
 
   const describeMutation = useBridgeMutation<{
     objects: Array<{ apiName: string; label: string; recordCount: number }>;
@@ -451,7 +469,9 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     ) {
       const { objectApiName, org } = message.payload ?? {};
       if (typeof objectApiName === 'string' && typeof org === 'string') {
-        setError(t('seed.clone.error.OBJECT_NOT_IN_TARGET', { object: objectApiName, org }));
+        const said = t('seed.clone.error.OBJECT_NOT_IN_TARGET', { object: objectApiName, org });
+        setError(said);
+        setNotInTarget({ object: objectApiName, org, said });
       }
       return;
     }
@@ -647,6 +667,10 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     loadingSource: describeMutation.loading,
     loadingPreview: previewMutation.loading,
     error,
+    adminCopy:
+      notInTarget !== null && error === notInTarget.said
+        ? objectAdminText(t, notInTarget.org, [{ object: notInTarget.object, need: 'notInTarget' }])
+        : '',
     keepContactPoints,
     setKeepContactPoints,
     checkpointFirst,

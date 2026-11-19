@@ -5929,7 +5929,8 @@
       "selectedCount": "{{count}} of {{total}} objects selected",
       "notInTarget": "Not in the target org, or its user may not see it: deploy it there (Compare), or grant Read and Create on it in a permission set",
       "notCreateableInTarget": "The user SandForge writes as may not create these in the target org: grant Create on it in a permission set there",
-      "countShown": "Count the records of the objects shown ({{objects}})"
+      "countShown": "Count the records of the objects shown ({{objects}})",
+      "copyForAdmin": "Copy for the target's admin what the objects shown need ({{objects}})"
     },
     "step3": {
       "selectFramework": "Select a compliance framework",
@@ -9620,6 +9621,15 @@
       "broughtBack_one": "{{formatted}} record brought back",
       "broughtBack_other": "{{formatted}} records brought back",
       "refused": "{{formatted}} refused"
+    }
+  },
+  "adminCopy": {
+    "copy": "Copy for the target's admin",
+    "copied": "Copied",
+    "heading": "Changes to make in the Setup of {{org}} for SandForge to write the records of these objects there:",
+    "step": {
+      "deploy": "Deploy {{object}} to {{org}} if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+      "grantCreate": "Give the user SandForge writes as Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}})."
     }
   }
 }

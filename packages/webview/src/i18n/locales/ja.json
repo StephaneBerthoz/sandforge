@@ -5595,7 +5595,8 @@
       "selectedCount": "{{total}}個中{{count}}個のオブジェクトが選択済み",
       "notInTarget": "ターゲット組織にないか、そのユーザーには見えません: そこへデプロイするか (組織比較)、権限セットで参照と作成を付与してください",
       "notCreateableInTarget": "SandForge が書き込むユーザーはターゲット組織でこれを作成できません: そこで権限セットにより作成を付与してください",
-      "countShown": "表示中のオブジェクトのレコードを数える ({{objects}})"
+      "countShown": "表示中のオブジェクトのレコードを数える ({{objects}})",
+      "copyForAdmin": "表示中のオブジェクトに必要な変更をターゲット組織の管理者向けにコピー ({{objects}})"
     },
     "step3": {
       "selectFramework": "コンプライアンスフレームワークを選択",
@@ -9002,6 +9003,15 @@
       "deleted_other": "{{formatted}} 件のレコードを削除",
       "broughtBack_other": "{{formatted}} 件のレコードを戻しました",
       "refused": "{{formatted}} 件が拒否"
+    }
+  },
+  "adminCopy": {
+    "copy": "ターゲット組織の管理者向けにコピー",
+    "copied": "コピーしました",
+    "heading": "SandForge がこれらのオブジェクトのレコードを {{org}} に書き込むために、{{org}} の設定で行う変更:",
+    "step": {
+      "deploy": "{{object}} が {{org}} にない場合はデプロイし (SandForge では: 組織比較、次に差分からデプロイ)、SandForge が書き込むユーザーに {{object}} の参照と作成の権限を付与する (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。",
+      "grantCreate": "SandForge が書き込むユーザーに {{object}} の作成権限を付与する (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。"
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import i18n from '../../../i18n';
 import { Step2Objects } from './Step2_Objects';
 import type { AutopilotObjectInfo } from './AutopilotWizard';
@@ -163,6 +163,76 @@ describe('Step2_Objects', () => {
     );
     fireEvent.click(row);
     expect(onToggleObject).not.toHaveBeenCalled();
+  });
+
+  it('copies for the target’s admin what the objects shown that cannot be picked need, as the search narrows them', async () => {
+    // The rows said to deploy an object or to grant Create on it, and the
+    // user wrote the list out again to hand it to whoever administers the
+    // target.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    render(
+      <Step2Objects
+        availableObjects={[
+          { apiName: 'Account', label: 'Account' },
+          { apiName: 'Ghost__c', label: 'Ghost', missingInTarget: true },
+          { apiName: 'Case', label: 'Case', notCreateableInTarget: true },
+        ]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+        targetOrg="qa-sandbox"
+      />,
+    );
+
+    const copy = screen.getByTestId('step2-admin-copy');
+    expect(copy.textContent).toBe("Copy for the target's admin what the objects shown need (2)");
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(writeText).toHaveBeenLastCalledWith(
+      [
+        'Changes to make in the Setup of qa-sandbox for SandForge to write the records of these objects there:',
+        '',
+        '- Deploy Ghost__c to qa-sandbox if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Ghost__c (Setup > their profile or a permission set > Object Settings > Ghost__c).',
+        '- Give the user SandForge writes as Create on Case (Setup > their profile or a permission set > Object Settings > Case).',
+      ].join('\n'),
+    );
+    expect(screen.getByTestId('step2-admin-copy-copied').textContent).toBe('Copied');
+
+    fireEvent.change(screen.getByTestId('object-search-input'), { target: { value: 'Case' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('step2-admin-copy'));
+    });
+    expect(writeText).toHaveBeenLastCalledWith(
+      [
+        'Changes to make in the Setup of qa-sandbox for SandForge to write the records of these objects there:',
+        '',
+        '- Give the user SandForge writes as Create on Case (Setup > their profile or a permission set > Object Settings > Case).',
+      ].join('\n'),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('offers no copy for the admin when every object shown can be picked', () => {
+    render(
+      <Step2Objects
+        availableObjects={[
+          { apiName: 'Account', label: 'Account' },
+          { apiName: 'Ghost__c', label: 'Ghost', missingInTarget: true },
+        ]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+        targetOrg="qa-sandbox"
+      />,
+    );
+    expect(screen.getByTestId('step2-admin-copy')).toBeDefined();
+
+    fireEvent.change(screen.getByTestId('object-search-input'), { target: { value: 'Acc' } });
+    expect(screen.queryByTestId('step2-admin-copy')).toBeNull();
   });
 
   it('counts on demand the objects shown whose count is not known, as the search narrows them', () => {

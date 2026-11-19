@@ -11,7 +11,7 @@ import {
   leftOutReasonLabel,
   leftOutWayOut,
 } from './forgeLeftOut';
-import { ReviewAdminCopy } from './ReviewAdminCopy';
+import { AdminCopy } from '../../components/ui/AdminCopy';
 
 /**
  * Reasons an object is left out for whose detail is the org's own words — a
@@ -103,7 +103,7 @@ const ReviewLeftOutObjects: React.FC<{ leftOut: readonly ForgeLeftOutObject[] | 
             </div>
           ))}
           {adminText !== '' && (
-            <ReviewAdminCopy
+            <AdminCopy
               text={adminText}
               testId="left-out-admin-copy"
               labelKey="forgeRun.review.leftOutAdmin.copy"

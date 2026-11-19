@@ -12,6 +12,7 @@ import {
   CLEANUP_NEXT_CURSOR,
   CLONE_STORAGE_WORDS,
   CSV_STORAGE_WORDS,
+  FROZEN_STATUS_TO_LOAD,
   FROZEN_STORAGE_WORDS,
   JOURNAL_UNAVAILABLE_REFUSAL,
   LEFT_OUT_ADMIN_COPY,
@@ -367,6 +368,137 @@ test.describe('Seed Clone of an object the target does not show', () => {
     await expect
       .poll(async () => (await sentPayloads(page, 'seed:clone:preview')).at(-1)?.objects)
       .toEqual([{ objectApiName: 'Account' }]);
+  });
+
+  test('copies for the target’s admin the deploy and the grants the object needs, and says it copied', async ({
+    page,
+  }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'seed');
+    await refuseClonePreviewForMissingObject(bridge, page);
+
+    const copy = page.getByTestId('clone-admin-copy');
+    await expect(copy).toHaveText("Copy for the target's admin");
+    await copy.click();
+    await expect(page.getByTestId('clone-admin-copy-copied')).toHaveText('Copied');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      [
+        `Changes to make in the Setup of ${DEV_SANDBOX.alias} for SandForge to write the records of these objects there:`,
+        '',
+        `- Deploy Invoice__c to ${DEV_SANDBOX.alias} if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Invoice__c (Setup > their profile or a permission set > Object Settings > Invoice__c).`,
+      ].join('\n'),
+    );
+
+    // Dismissed, the refusal takes its copy with it.
+    await page.getByTestId('clone-error').getByRole('button', { name: 'Dismiss' }).click();
+    await expect(page.getByTestId('clone-admin-copy')).toHaveCount(0);
+  });
+});
+
+test.describe('Autopilot’s objects the target lacks or will not let be created', () => {
+  test('copies for the target’s admin what the objects shown need, as the search narrows them', async ({
+    page,
+  }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'autopilot');
+    await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+    await page.getByTestId(`source-org-${DEV_SANDBOX.id}`).click();
+    await page.getByTestId(`target-org-${QA_SANDBOX.id}`).click();
+    await page.getByTestId('seed-wizard-next').click();
+    await bridge.respondToNext(
+      'autopilot:list-objects',
+      'autopilot:objects-listed',
+      {
+        objects: [
+          { apiName: 'Account', label: 'Account', custom: false },
+          { apiName: 'Shipment__c', label: 'Shipment', custom: true, missingInTarget: true },
+          { apiName: 'Warranty__c', label: 'Warranty', custom: true, notCreateableInTarget: true },
+        ],
+      },
+      { timeout: 10_000 },
+    );
+
+    const copy = page.getByTestId('step2-admin-copy');
+    await expect(copy).toHaveText("Copy for the target's admin what the objects shown need (2)");
+    await copy.click();
+    await expect(page.getByTestId('step2-admin-copy-copied')).toHaveText('Copied');
+    const heading = `Changes to make in the Setup of ${QA_SANDBOX.alias} for SandForge to write the records of these objects there:`;
+    const warranty =
+      '- Give the user SandForge writes as Create on Warranty__c (Setup > their profile or a permission set > Object Settings > Warranty__c).';
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      [
+        heading,
+        '',
+        `- Deploy Shipment__c to ${QA_SANDBOX.alias} if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Shipment__c (Setup > their profile or a permission set > Object Settings > Shipment__c).`,
+        warranty,
+      ].join('\n'),
+    );
+
+    await page.getByTestId('object-search-input').fill('Warranty');
+    await expect(copy).toHaveText("Copy for the target's admin what the objects shown need (1)");
+    await copy.click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe([heading, '', warranty].join('\n'));
+  });
+});
+
+test.describe('a Frozen load’s preview of objects it would not send', () => {
+  test('copies for the target’s admin what each needs, by why it is left out', async ({ page }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'frozen');
+    await answerOnceAsked(page, 'frozen:status', 'frozen:status:response', {
+      status: FROZEN_STATUS_TO_LOAD,
+    });
+    await page.getByTestId('page-tab-load').click();
+    await page.getByTestId('frozen-load-target').click();
+    await page.getByTestId(`frozen-load-target-option-${QA_SANDBOX.id}`).click();
+    await expect(page.getByTestId('frozen-load-preview')).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId('frozen-load-preview').click();
+    await answerOnceAsked(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+      plan: {
+        orgId: QA_SANDBOX.id,
+        mode: { pilot: false, reload: false },
+        plannedAt: '2026-11-19T10:00:00.000Z',
+        perObject: [],
+        excludedObjects: [
+          {
+            objectApiName: 'Invoice__c',
+            reason: 'Not present in target org: sObject Invoice__c not found.',
+            cause: 'notInTarget',
+          },
+          {
+            objectApiName: 'ErrorLog__c',
+            reason: 'Not createable in target org: 1 record of the dataset not loaded.',
+            cause: 'notCreateable',
+          },
+        ],
+        removals: [],
+        placeholders: [],
+        requiredDefaults: [],
+        recordTypeIssues: 0,
+        personContacts: 0,
+        earlierLoads: 0,
+      },
+    });
+
+    const copy = page
+      .getByTestId('frozen-preview-excluded')
+      .getByTestId('frozen-preview-admin-copy');
+    await expect(copy).toHaveText("Copy for the target's admin");
+    await copy.click();
+    await expect(page.getByTestId('frozen-preview-admin-copy-copied')).toHaveText('Copied');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      [
+        `Changes to make in the Setup of ${QA_SANDBOX.alias} for SandForge to write the records of these objects there:`,
+        '',
+        `- Deploy Invoice__c to ${QA_SANDBOX.alias} if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Invoice__c (Setup > their profile or a permission set > Object Settings > Invoice__c).`,
+        '- Give the user SandForge writes as Create on ErrorLog__c (Setup > their profile or a permission set > Object Settings > ErrorLog__c).',
+      ].join('\n'),
+    );
   });
 });
 

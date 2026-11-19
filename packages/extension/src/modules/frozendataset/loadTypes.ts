@@ -11,6 +11,7 @@
 
 import type {
   FrozenDefaultPerRecord,
+  FrozenExcludedObject,
   FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
   FrozenUnresolvedLinkCause,
@@ -395,8 +396,8 @@ export interface RecordTypeIssue {
 /** Whole-dataset alignment report. */
 export interface SchemaAlignmentReport {
   objectResults: SchemaAlignObjectResult[];
-  /** Objects absent from the target org — excluded and listed. */
-  excludedObjects: Array<{ objectApiName: string; reason: string }>;
+  /** Objects the target lacks or takes no insert of — excluded, listed, and said by cause. */
+  excludedObjects: FrozenExcludedObject[];
   removals: FieldRemoval[];
   adjustments: PicklistAdjustment[];
   /** RecordTypes dropped because they are unresolvable in the target. */

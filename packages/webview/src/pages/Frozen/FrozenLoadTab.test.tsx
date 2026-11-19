@@ -958,6 +958,88 @@ describe('FrozenLoadTab', () => {
       ).toBeDefined();
     });
 
+    it('copies for the target’s admin what the objects it would not send need, in the preview and in the report', async () => {
+      // Each object said "Deploy it to the target, or give the loading user
+      // Read on it", in the extension's English, and the user wrote it out
+      // again for whoever administers the target.
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      const excludedObjects = [
+        {
+          objectApiName: 'Invoice__c',
+          reason: 'Not present in target org: NOT_FOUND. Deploy it to the target, …',
+          cause: 'notInTarget' as const,
+        },
+        {
+          objectApiName: 'ErrorLog__c',
+          reason: 'Not createable in target org: 2 records of the dataset not loaded. …',
+          cause: 'notCreateable' as const,
+        },
+      ];
+      const copied = [
+        'Changes to make in the Setup of DEV-SANDBOX for SandForge to write the records of these objects there:',
+        '',
+        '- Deploy Invoice__c to DEV-SANDBOX if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Invoice__c (Setup > their profile or a permission set > Object Settings > Invoice__c).',
+        '- Give the user SandForge writes as Create on ErrorLog__c (Setup > their profile or a permission set > Object Settings > ErrorLog__c).',
+      ].join('\n');
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, excludedObjects } } };
+      const { unmount } = render(tab());
+
+      const preview = screen.getByTestId('frozen-preview-excluded');
+      const copy = within(preview).getByTestId('frozen-preview-admin-copy');
+      expect(copy.textContent).toBe("Copy for the target's admin");
+      await act(async () => {
+        fireEvent.click(copy);
+      });
+      expect(writeText).toHaveBeenLastCalledWith(copied);
+      expect(screen.getByTestId('frozen-preview-admin-copy-copied').textContent).toBe('Copied');
+      unmount();
+
+      delete answers['frozen:load:preview'];
+      useFrozenStore.setState({
+        loadReport: {
+          status: 'partial',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          startedAt: '2026-10-09T10:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects, removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          purge: { deleted: {}, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: '',
+        },
+      });
+      render(tab());
+      const report = screen.getByTestId('frozen-report-excluded');
+      await act(async () => {
+        fireEvent.click(within(report).getByTestId('frozen-report-admin-copy'));
+      });
+      expect(writeText).toHaveBeenLastCalledWith(copied);
+      vi.unstubAllGlobals();
+    });
+
+    it('offers no copy for the admin of an object left out for a reason it does not name', () => {
+      // A report kept before the cause was given names none: what the admin
+      // would do is not guessed from the extension's English.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            excludedObjects: [{ objectApiName: 'Invoice__c', reason: 'Not present in target org' }],
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-excluded')).toBeDefined();
+      expect(screen.queryByTestId('frozen-preview-admin-copy')).toBeNull();
+    });
+
     it('says which records the load would leave out for a parent excludedObjects leaves out', () => {
       answers['frozen:load:preview'] = {
         data: {

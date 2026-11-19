@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { useForgeStore, type MetadataDiffEntry } from '../../stores/useForgeStore';
 import { Button } from '../../components/ui/Button';
 import { withFieldExcluded } from '../../utils/forgeGapDecisions';
-import { ReviewAdminCopy } from './ReviewAdminCopy';
+import { AdminCopy } from '../../components/ui/AdminCopy';
 
 /**
  * What the tab says of an object the user the clone writes as may not create,
@@ -244,7 +244,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
             count: diffs.length,
           })}
         </p>
-        {copied !== '' && <ReviewAdminCopy text={copied} testId="metadata-admin-copy" />}
+        {copied !== '' && <AdminCopy text={copied} testId="metadata-admin-copy" />}
       </div>
       {diffs.map((diff, idx) => {
         const action = actionOf(diff, idx);

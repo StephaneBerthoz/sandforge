@@ -340,6 +340,50 @@ describe('CloneWizard', () => {
       expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
       expect(screen.getByTestId('clone-wizard-next').getAttribute('aria-disabled')).toBeNull();
     });
+
+    it('copies, under the refusal of an object the target does not show, what its admin has to do, and goes with the refusal', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      render(<CloneWizard onBack={vi.fn()} />);
+      pickSourceAndAccount();
+      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      expect(screen.queryByTestId('clone-admin-copy')).toBeNull();
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'host-error',
+              type: 'seed:clone:error',
+              timestamp: Date.now(),
+              correlationId: 'wv-preview',
+              payload: {
+                message: 'Invoice__c is not in the target org, or …',
+                code: 'OBJECT_NOT_IN_TARGET',
+                retryable: false,
+                objectApiName: 'Invoice__c',
+                org: 'dev1',
+              },
+            },
+          }),
+        );
+      });
+
+      const copy = screen.getByTestId('clone-admin-copy');
+      expect(copy.textContent).toBe("Copy for the target's admin");
+      await act(async () => {
+        fireEvent.click(copy);
+      });
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('- Deploy Invoice__c to dev1 if it is not there'),
+      );
+      expect(screen.getByTestId('clone-admin-copy-copied').textContent).toBe('Copied');
+
+      fireEvent.click(
+        within(screen.getByTestId('clone-error')).getByRole('button', { name: en.common.dismiss }),
+      );
+      expect(screen.queryByTestId('clone-admin-copy')).toBeNull();
+      vi.unstubAllGlobals();
+    });
   });
 
   describe('the run, which goes by its preview', () => {

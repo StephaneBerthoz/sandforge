@@ -5929,7 +5929,8 @@
       "selectedCount": "{{count}} de {{total}} objetos seleccionados",
       "notInTarget": "No está en la org de destino, o su usuario no lo ve: despliéguelo allí (Comparación) u otorgue Leer y Crear sobre él en un conjunto de permisos",
       "notCreateableInTarget": "El usuario con el que escribe SandForge no puede crearlos en la org de destino: otorgue allí Crear sobre él en un conjunto de permisos",
-      "countShown": "Contar los registros de los objetos mostrados ({{objects}})"
+      "countShown": "Contar los registros de los objetos mostrados ({{objects}})",
+      "copyForAdmin": "Copiar para el administrador del destino lo que necesitan los objetos mostrados ({{objects}})"
     },
     "step3": {
       "selectFramework": "Seleccione un marco de cumplimiento",
@@ -9620,6 +9621,15 @@
       "broughtBack_one": "{{formatted}} registro recuperado",
       "broughtBack_other": "{{formatted}} registros recuperados",
       "refused": "{{formatted}} rechazados"
+    }
+  },
+  "adminCopy": {
+    "copy": "Copiar para el administrador del destino",
+    "copied": "Copiado",
+    "heading": "Cambios por hacer en la Configuración de {{org}} para que SandForge escriba allí los registros de estos objetos:",
+    "step": {
+      "deploy": "Desplegar {{object}} en {{org}} si no está (en SandForge: Comparación, luego Desplegar desde diff), y después dar al usuario con el que escribe SandForge los permisos de lectura y creación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+      "grantCreate": "Dar al usuario con el que escribe SandForge el permiso de creación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}})."
     }
   }
 }

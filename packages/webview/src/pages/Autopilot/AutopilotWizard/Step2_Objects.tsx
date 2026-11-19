@@ -4,8 +4,10 @@ import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
 import { cn } from '../../../theme';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { AdminCopy } from '../../../components/ui/AdminCopy';
 import type { AutopilotObjectInfo } from './AutopilotWizard';
 import { uiLocale } from '../../../utils/formatters';
+import { objectAdminText } from '../../../utils/objectAdminText';
 
 /** Whether an object can be picked: the target has it, and its user may create its records. */
 export function pickableInTarget(o: {
@@ -35,6 +37,8 @@ export interface Step2ObjectsProps {
   readonly onCountShown?: (apiNames: string[]) => void;
   /** Whether a count is in flight: the count of the objects shown waits for it. */
   readonly counting?: boolean;
+  /** The target org's name, as the list copied for its admin names it. */
+  readonly targetOrg?: string;
 }
 
 /** Step 2: Select root objects for autopilot seeding. */
@@ -46,6 +50,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
   onToggleAll,
   onCountShown,
   counting = false,
+  targetOrg = '',
 }) => {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
@@ -65,6 +70,29 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
         .filter((o) => o.recordCount === undefined && !o.countAsked && pickableInTarget(o))
         .map((o) => o.apiName),
     [filteredObjects],
+  );
+
+  /*
+   * What the objects shown that cannot be picked need of the target's admin:
+   * a deploy, or Create. Narrowed by the search, as the count of the objects
+   * shown is, so that the list handed over names the objects looked for and
+   * not every one a target of another org lacks.
+   */
+  const unpickableShown = useMemo(
+    () => filteredObjects.filter((o) => !pickableInTarget(o)),
+    [filteredObjects],
+  );
+  const adminText = useMemo(
+    () =>
+      objectAdminText(
+        t,
+        targetOrg,
+        unpickableShown.map((o) => ({
+          object: o.apiName,
+          need: o.missingInTarget ? ('notInTarget' as const) : ('notCreateable' as const),
+        })),
+      ),
+    [t, targetOrg, unpickableShown],
   );
 
   /** Format record count with locale-aware number formatting. */
@@ -158,6 +186,15 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
           </p>
         )}
       </div>
+
+      {adminText !== '' && (
+        <AdminCopy
+          text={adminText}
+          testId="step2-admin-copy"
+          labelKey="autopilot.step2.copyForAdmin"
+          labelValues={{ objects: unpickableShown.length }}
+        />
+      )}
 
       <div className="flex items-center justify-between gap-(--sf-space-3)">
         <span className="text-xs text-text-secondary">

@@ -133,6 +133,8 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ]),
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [
+    // What the clone's refusal of an object the target lacks copies for its admin.
+    'adminCopy',
     'automationMute',
     'checkpointNotes',
     'emptyState',
@@ -167,6 +169,8 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'syncParts',
   ]),
   autopilot: page(() => import('./pages/Autopilot/AutopilotPage'), 'AutopilotPage', [
+    // What the objects the target lacks or will not let be created need of its admin.
+    'adminCopy',
     'automationMute',
     'autopilot',
     'checkpointNotes',

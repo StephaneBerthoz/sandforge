@@ -10,6 +10,7 @@ import type { WizardStep } from '../../../components/ui/Wizard';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
+import { AdminCopy } from '../../../components/ui/AdminCopy';
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { CloneSourcePicker } from './CloneSourcePicker';
 import { CloneObjectSelector } from './CloneObjectSelector';
@@ -187,6 +188,11 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
           onDismiss={clone.dismissError}
           data-testid="clone-error"
         />
+      )}
+      {/* Under the refusal of an object the target does not show: what its
+          admin has to do, to hand over rather than write out again. */}
+      {clone.error && clone.adminCopy !== '' && (
+        <AdminCopy text={clone.adminCopy} testId="clone-admin-copy" />
       )}
       {/* What became of the checkpoint a stopped clone took first. */}
       {!running && (

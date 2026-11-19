@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
-import { ReviewAdminCopy } from './ReviewAdminCopy';
+import { AdminCopy } from './AdminCopy';
 
-describe('ReviewAdminCopy', () => {
+describe('AdminCopy', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -11,7 +11,7 @@ describe('ReviewAdminCopy', () => {
   it('copies the list as given, and says so once the host took it', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
-    render(<ReviewAdminCopy text={'Heading\n- a step'} testId="admin-copy" />);
+    render(<AdminCopy text={'Heading\n- a step'} testId="admin-copy" />);
 
     expect(screen.getByTestId('admin-copy').textContent).toBe("Copy for the target's admin");
     await act(async () => {
@@ -26,7 +26,7 @@ describe('ReviewAdminCopy', () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
     });
-    render(<ReviewAdminCopy text="x" testId="admin-copy" />);
+    render(<AdminCopy text="x" testId="admin-copy" />);
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('admin-copy'));
@@ -36,10 +36,23 @@ describe('ReviewAdminCopy', () => {
   });
 
   it('says the words it is given', () => {
+    render(<AdminCopy text="x" testId="admin-copy" labelKey="forgeRun.review.leftOutAdmin.copy" />);
+
+    expect(screen.getByTestId('admin-copy').textContent).toBe('Copy the changes for the admins');
+  });
+
+  it('gives its words what they name', () => {
     render(
-      <ReviewAdminCopy text="x" testId="admin-copy" labelKey="forgeRun.review.leftOutAdmin.copy" />,
+      <AdminCopy
+        text="x"
+        testId="admin-copy"
+        labelKey="autopilot.step2.copyForAdmin"
+        labelValues={{ objects: 3 }}
+      />,
     );
 
-    expect(screen.getByTestId('admin-copy').textContent).not.toBe("Copy for the target's admin");
+    expect(screen.getByTestId('admin-copy').textContent).toBe(
+      "Copy for the target's admin what the objects shown need (3)",
+    );
   });
 });

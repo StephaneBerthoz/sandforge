@@ -1996,15 +1996,21 @@ export class FrozenDatasetLoader {
       // lost with its object, and that is an error, as Forge counts it.
       const toWrite = objectData.records.filter((r) => !reused.has(r.referenceId));
       /*
-       * Leave the object out, listed with `reason`, and count its records as
-       * the insert would have, each lost one with `error`. Listed and nothing
+       * Leave the object out, listed with `reason` and with `cause`, from
+       * which the panel writes the steps it copies for the target's admin, and
+       * count its records as the insert would have, each lost one with
+       * `error`. Listed and nothing
        * more, an object the target lacks ended the load completed, its
        * records lost all the same; and of one it takes no insert of, the
        * records the load links were counted nowhere, and those it could not
        * write were missing from the audit trail.
        */
-      const leaveOut = (reason: string, error: string): void => {
-        alignment.excludedObjects.push({ objectApiName, reason });
+      const leaveOut = (
+        reason: string,
+        error: string,
+        cause: 'notInTarget' | 'notCreateable',
+      ): void => {
+        alignment.excludedObjects.push({ objectApiName, reason, cause });
         lostObjects.set(objectApiName, {
           objectApiName,
           fromFiles:
@@ -2038,7 +2044,7 @@ export class FrozenDatasetLoader {
           `Not present in target org: ${err instanceof Error ? err.message : String(err)}. ` +
           'Deploy it to the target, or give the loading user Read on it, then load again; or ' +
           'leave it out of the configuration (excludedObjects) and extract again';
-        leaveOut(reason, reason);
+        leaveOut(reason, reason, 'notInTarget');
         continue;
       }
       if (objectApiName === ACCOUNT) {
@@ -2055,6 +2061,7 @@ export class FrozenDatasetLoader {
             'where the platform lets a user create it; otherwise leave it out of the ' +
             'configuration (excludedObjects) and extract again',
           'Not createable in target org: the running user may not insert it',
+          'notCreateable',
         );
         continue;
       }

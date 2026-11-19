@@ -1,28 +1,34 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../../components/ui/Button';
+import { Button } from './Button';
 
-/** Props of {@link ReviewAdminCopy}. */
-export interface ReviewAdminCopyProps {
+/** Props of {@link AdminCopy}. */
+export interface AdminCopyProps {
   /** The list as it is copied: a heading, then a step a line. */
   text: string;
   /** What the test ids of the button and its status begin with. */
   testId: string;
   /** The words of the button; absent, those of a list for the target's admin. */
   labelKey?: string;
+  /** What the words of the button are given, such as how many objects the list names. */
+  labelValues?: Record<string, string | number>;
 }
 
 /**
  * A button that copies, for whoever administers an org, the changes to make
  * in its Setup, with the word it says once the copy is done. Nothing is
- * claimed copied when the host refuses the clipboard. Review's lists of
- * objects left out and of metadata differences said what an admin would
+ * claimed copied when the host refuses the clipboard. Forge's Review, Seed's
+ * clone, Autopilot's objects and Frozen's load said what an admin would
  * change, and the user had to write it out again to hand it over.
+ *
+ * Its words are in `adminCopy`, a namespace each page that draws it loads
+ * (PanelRouter, forgeSteps.ts).
  */
-export const ReviewAdminCopy: React.FC<ReviewAdminCopyProps> = ({
+export const AdminCopy: React.FC<AdminCopyProps> = ({
   text,
   testId,
-  labelKey = 'forgeRun.gaps.admin.copy',
+  labelKey = 'adminCopy.copy',
+  labelValues,
 }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -50,10 +56,10 @@ export const ReviewAdminCopy: React.FC<ReviewAdminCopyProps> = ({
   return (
     <span className="flex items-center gap-2">
       <Button variant="secondary" size="sm" data-testid={testId} onClick={copy}>
-        {t(labelKey)}
+        {t(labelKey, labelValues)}
       </Button>
       <span role="status" data-testid={`${testId}-copied`} className="text-text-secondary">
-        {copied ? t('forgeRun.gaps.admin.copied') : ''}
+        {copied ? t('adminCopy.copied') : ''}
       </span>
     </span>
   );

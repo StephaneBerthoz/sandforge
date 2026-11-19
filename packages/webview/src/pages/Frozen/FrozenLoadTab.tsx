@@ -5,6 +5,7 @@ import type {
   BaseMessage,
   ErrorHint,
   ForgeFieldRefusal,
+  FrozenExcludedObject,
   FrozenFieldRemoval,
   FrozenLoadPlanInfo,
   FrozenLoadProgress,
@@ -46,6 +47,8 @@ import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { AdminCopy } from '../../components/ui/AdminCopy';
+import { objectAdminText, type ObjectAdminStep } from '../../utils/objectAdminText';
 import { FrozenLoadEmails } from './FrozenLoadEmails';
 import { formatNumber, roundedUpMegabytes } from '../../utils/formatters';
 import { FrozenLoadAutomation } from './FrozenLoadAutomation';
@@ -185,6 +188,16 @@ function maybeMasks(removals: readonly FrozenFieldRemoval[] | undefined): string
     .filter((removal) => removal.reason === 'may-hold-masks')
     .map((removal) => `${removal.objectApiName}.${removal.field} (${removal.affectedRecords})`)
     .join(', ');
+}
+
+/**
+ * What the target's admin has to do for the objects a load does not send, by
+ * the cause each is left out for: deploy it and give Read and Create on it,
+ * or give Create on it. An object of a report kept before the cause was given
+ * is not guessed at from the extension's English.
+ */
+function excludedAdminSteps(excluded: readonly FrozenExcludedObject[]): ObjectAdminStep[] {
+  return excluded.flatMap((o) => (o.cause ? [{ object: o.objectApiName, need: o.cause }] : []));
 }
 
 /** The rows of a table of failure reasons, one per object, status code and message. */
@@ -528,6 +541,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     ? orgDisplayName(
         orgs.find((o) => o.id === plan.orgId),
         plan.orgId,
+      )
+    : '';
+  const planAdminText = plan
+    ? objectAdminText(t, planOrg, excludedAdminSteps(plan.excludedObjects))
+    : '';
+  const reportAdminText = loadReport
+    ? objectAdminText(
+        t,
+        orgDisplayName(
+          orgs.find((o) => o.id === loadReport.orgId),
+          loadReport.orgId,
+        ),
+        excludedAdminSteps(loadReport.alignment.excludedObjects),
       )
     : '';
   const planColumns = plan
@@ -1180,6 +1206,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       </li>
                     ))}
                   </ul>
+                  {planAdminText !== '' && (
+                    <AdminCopy text={planAdminText} testId="frozen-preview-admin-copy" />
+                  )}
                 </div>
               )}
               {planMasks !== '' && (
@@ -1658,6 +1687,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       </li>
                     ))}
                   </ul>
+                  {reportAdminText !== '' && (
+                    <AdminCopy text={reportAdminText} testId="frozen-report-admin-copy" />
+                  )}
                 </div>
               )}
 

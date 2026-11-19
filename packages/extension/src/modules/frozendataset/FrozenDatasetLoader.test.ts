@@ -364,6 +364,9 @@ describe('FrozenDatasetLoader — fresh load', () => {
 
     expect(report.alignment.excludedObjects).toHaveLength(1);
     expect(report.alignment.excludedObjects[0].objectApiName).toBe('Contact');
+    // Named by cause, which the panel's copy for the target's admin reads: a
+    // deploy, or Read and Create, where the reason is the extension's English.
+    expect(report.alignment.excludedObjects[0].cause).toBe('notInTarget');
     expect(calls.map((c) => c.objectApiName)).toEqual(['Account']);
     expect(report.status).toBe('completed-with-errors');
     expect(progress).toContainEqual(
@@ -429,6 +432,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
           'Not createable in target org: 1 record of the dataset not loaded. Give the loading ' +
           'user Create on it in a permission set, where the platform lets a user create it; ' +
           'otherwise leave it out of the configuration (excludedObjects) and extract again',
+        cause: 'notCreateable',
       },
     ]);
     expect(report.status).toBe('completed-with-errors');
@@ -495,6 +499,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
           'Not createable in target org: 1 record of the dataset not loaded. Give the loading ' +
           'user Create on it in a permission set, where the platform lets a user create it; ' +
           'otherwise leave it out of the configuration (excludedObjects) and extract again',
+        cause: 'notCreateable',
       },
     ]);
     expect(report.perObject).toEqual([

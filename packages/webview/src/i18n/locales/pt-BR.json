@@ -5929,7 +5929,8 @@
       "selectedCount": "{{count}} de {{total}} objetos selecionados",
       "notInTarget": "Não existe na org de destino, ou o usuário dela não o vê: implante-o lá (Comparação) ou conceda Ler e Criar nele em um conjunto de permissões",
       "notCreateableInTarget": "O usuário com que o SandForge grava não pode criá-los na org de destino: conceda lá Criar nele em um conjunto de permissões",
-      "countShown": "Contar os registros dos objetos exibidos ({{objects}})"
+      "countShown": "Contar os registros dos objetos exibidos ({{objects}})",
+      "copyForAdmin": "Copiar para o administrador do destino o que os objetos exibidos precisam ({{objects}})"
     },
     "step3": {
       "selectFramework": "Selecione um framework de conformidade",
@@ -9620,6 +9621,15 @@
       "broughtBack_one": "{{formatted}} registro trazido de volta",
       "broughtBack_other": "{{formatted}} registros trazidos de volta",
       "refused": "{{formatted}} recusados"
+    }
+  },
+  "adminCopy": {
+    "copy": "Copiar para o administrador do destino",
+    "copied": "Copiado",
+    "heading": "Alterações a fazer na Configuração de {{org}} para que o SandForge grave lá os registros destes objetos:",
+    "step": {
+      "deploy": "Implantar {{object}} em {{org}} se não estiver lá (no SandForge: Comparação, depois Implantar a partir do diff), e então dar ao usuário com que o SandForge grava as permissões de leitura e criação em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}}).",
+      "grantCreate": "Dar ao usuário com que o SandForge grava a permissão de criação em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}})."
     }
   }
 }

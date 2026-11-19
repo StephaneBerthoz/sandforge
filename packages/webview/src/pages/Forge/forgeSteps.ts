@@ -35,7 +35,7 @@ const loadDiscovery = loadOnce(() =>
 const loadReview = loadOnce(() =>
   withEnglish(
     () => import('./ForgeReview'),
-    ['automationMute', 'checkpointNotes', 'forgeRun', 'orgAutomation'],
+    ['adminCopy', 'automationMute', 'checkpointNotes', 'forgeRun', 'orgAutomation'],
   )().then((module) => ({
     default: module.ForgeReview,
   })),

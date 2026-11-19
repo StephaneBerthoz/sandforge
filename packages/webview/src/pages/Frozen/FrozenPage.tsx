@@ -23,14 +23,15 @@ import { formatDate, formatStoredDate } from '../../utils/formatters';
 
 /*
  * The Load tab, a chunk of its own fetched the first time it is opened, with
- * the words of what the target runs as a load writes and of what a removal
- * deletes: the page opens on Extract. It parsed 997 kB before it painted while
+ * the words of what the target runs as a load writes, of what a removal
+ * deletes and of what is copied for the target's admin: the page opens on
+ * Extract. It parsed 997 kB before it painted while
  * it held them, 3 kB short of its budget.
  */
 const LoadedFrozenLoadTab = lazy(() =>
   withEnglish(
     () => import('./FrozenLoadTab'),
-    ['automationMute', 'checkpointNotes', 'runRemoval'],
+    ['adminCopy', 'automationMute', 'checkpointNotes', 'runRemoval'],
   )().then((module) => ({
     default: module.FrozenLoadTab,
   })),

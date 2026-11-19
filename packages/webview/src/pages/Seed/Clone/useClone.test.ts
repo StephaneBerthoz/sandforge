@@ -437,6 +437,62 @@ describe('useClone', () => {
       expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
     });
 
+    it('gives, for the target’s admin, the deploy and the grants that object needs, as long as its refusal is shown', () => {
+      // The refusal said to deploy the object and give the user access to
+      // it, and the user wrote it out again for whoever administers the target.
+      const { result, rerender } = previewSent();
+      const failed = 'Invoice__c is not in the target org, or …';
+      expect(result.current.adminCopy).toBe('');
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: failed };
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'host-error',
+              type: 'seed:clone:error',
+              timestamp: Date.now(),
+              correlationId: 'wv-preview',
+              payload: {
+                message: failed,
+                code: 'OBJECT_NOT_IN_TARGET',
+                retryable: false,
+                objectApiName: 'Invoice__c',
+                org: 'my-dev-org',
+              },
+            },
+          }),
+        );
+      });
+      rerender();
+
+      expect(result.current.adminCopy).toBe(
+        [
+          'Changes to make in the Setup of my-dev-org for SandForge to write the records of these objects there:',
+          '',
+          '- Deploy Invoice__c to my-dev-org if it is not there (in SandForge: Compare, then Deploy from Diff), then give the user SandForge writes as Read and Create on Invoice__c (Setup > their profile or a permission set > Object Settings > Invoice__c).',
+        ].join('\n'),
+      );
+
+      act(() => {
+        result.current.dismissError();
+      });
+      expect(result.current.adminCopy).toBe('');
+    });
+
+    it('gives nothing for the admin beside a refusal that asks nothing of them', () => {
+      const { result, rerender } = previewSent();
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: REFUSED };
+        cloneError('wv-preview', REFUSED, 'INVALID_PAYLOAD');
+      });
+      rerender();
+
+      expect(result.current.error).toBe(en.seed.clone.error.INVALID_PAYLOAD);
+      expect(result.current.adminCopy).toBe('');
+    });
+
     it('is not taken for a refusal of another request', () => {
       const { result } = previewSent();
 
