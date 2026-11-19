@@ -346,7 +346,6 @@ const FROZEN_TYPES = new Set([
   'frozen:config:save',
   'frozen:select',
   'frozen:extract',
-  'frozen:manifest:get',
   'frozen:load',
   'frozen:load:preview',
   'frozen:verify',
@@ -1940,9 +1939,6 @@ export class FrozenDatasetHandler implements DomainHandler {
         return true;
       case 'frozen:extract':
         await this.handleExtract(msg);
-        return true;
-      case 'frozen:manifest:get':
-        await this.handleManifestGet(msg);
         return true;
       case 'frozen:load':
         await this.loadingDuring(msg, () => this.handleLoad(msg));
@@ -3819,30 +3815,6 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.deps.broker.postToWebview(
       buildResponse(this.deps, msg, 'frozen:rules:create:response', { rulesPath, created, opened }),
     );
-  }
-
-  // ── frozen:manifest:get ────────────────────────────────────────────────
-
-  private async handleManifestGet(msg: InboundRequest): Promise<void> {
-    const config = this.loadConfig();
-    const datasetDir = this.resolveDatasetDir(config);
-    let manifest: FrozenManifestInfo | null = null;
-    try {
-      const guard = new SasPathGuard();
-      const manifestPath = guard.assertOutsideRepo(path.join(datasetDir, 'manifest.json'));
-      if (await pathExists(manifestPath)) {
-        manifest = toManifestInfo(
-          parseManifest(JSON.parse(await fs.readFile(manifestPath, 'utf8'))),
-        );
-      }
-    } catch (err: unknown) {
-      logger.warn(`frozen:manifest:get — unreadable manifest: ${String(err)}`);
-    }
-    const response = buildResponse(this.deps, msg, 'frozen:manifest:get:response', {
-      manifest,
-      datasetDir,
-    });
-    this.deps.broker.postToWebview(response);
   }
 
   /**

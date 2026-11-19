@@ -559,7 +559,6 @@ import type {
   FrozenConfigSaveRequest,
   FrozenSelectRequest,
   FrozenExtractRequest,
-  FrozenManifestGetRequest,
   FrozenLoadRequest,
   FrozenLoadPreviewRequest,
   FrozenVerifyRequest,
@@ -576,7 +575,6 @@ import type {
   FrozenSelectProgressMessage,
   FrozenExtractResponse,
   FrozenControlResultMessage,
-  FrozenManifestGetResponse,
   FrozenLoadResponse,
   FrozenLoadProgressMessage,
   FrozenLoadPreviewResponse,
@@ -903,7 +901,6 @@ export type WebViewToExtensionMessage =
   | FrozenConfigSaveRequest
   | FrozenSelectRequest
   | FrozenExtractRequest
-  | FrozenManifestGetRequest
   | FrozenLoadRequest
   | FrozenLoadPreviewRequest
   | FrozenVerifyRequest
@@ -1245,7 +1242,6 @@ export type ExtensionToWebViewMessage =
   | FrozenSelectProgressMessage
   | FrozenExtractResponse
   | FrozenControlResultMessage
-  | FrozenManifestGetResponse
   | FrozenLoadResponse
   | FrozenLoadProgressMessage
   | FrozenLoadPreviewResponse

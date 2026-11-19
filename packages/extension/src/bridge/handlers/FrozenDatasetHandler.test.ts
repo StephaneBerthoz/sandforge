@@ -361,7 +361,6 @@ describe('FrozenDatasetHandler', () => {
       // No config saved → data-bearing flows fail with CONFIG_MISSING/NO_LOAD,
       // but every type is claimed by the handler.
       expect(await handler.handle(buildMsg('frozen:config:get'))).toBe(true);
-      expect(await handler.handle(buildMsg('frozen:manifest:get'))).toBe(true);
       expect(await handler.handle(buildMsg('frozen:status'))).toBe(true);
       expect(await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }))).toBe(true);
       expect(await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }))).toBe(true);
@@ -3365,17 +3364,6 @@ describe('FrozenDatasetHandler', () => {
           note: '1 tracked change left out: the platform writes them itself',
         },
       ]);
-    });
-  });
-
-  describe('frozen:manifest:get', () => {
-    it('responds with null manifest when no dataset was written', async () => {
-      deps = createMockDeps(createMockConfig());
-      handler = new FrozenDatasetHandler(deps);
-      await handler.handle(buildMsg('frozen:manifest:get'));
-      const responses = posted(deps, 'frozen:manifest:get:response');
-      expect(responses).toHaveLength(1);
-      expect(responses[0].payload.manifest).toBeNull();
     });
   });
 });

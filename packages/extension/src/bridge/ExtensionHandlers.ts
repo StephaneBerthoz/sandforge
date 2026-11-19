@@ -1356,7 +1356,6 @@ export class ExtensionHandlers {
         'frozen:config:save',
         'frozen:select',
         'frozen:extract',
-        'frozen:manifest:get',
         'frozen:load',
         'frozen:load:preview',
         'frozen:verify',

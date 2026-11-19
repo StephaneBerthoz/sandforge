@@ -685,8 +685,6 @@ const FrozenMessages = [
   msg('frozen:extract'),
   msg('frozen:extract:response'),
   msg('frozen:control:result'),
-  msg('frozen:manifest:get'),
-  msg('frozen:manifest:get:response'),
   msg('frozen:load'),
   msg('frozen:load:response'),
   msg('frozen:load:progress'),

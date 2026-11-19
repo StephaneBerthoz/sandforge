@@ -61,11 +61,6 @@ export interface FrozenExtractRequest extends BaseMessage {
   payload: { sourceOrgId: string; author?: string };
 }
 
-/** `frozen:manifest:get`. WebView -> Extension. Read the frozen manifest (no payload). */
-export interface FrozenManifestGetRequest extends BaseMessage {
-  type: 'frozen:manifest:get';
-}
-
 /**
  * `frozen:load`. WebView -> Extension. Replay the frozen dataset into a
  * target sandbox (Production Guard + entry guards). `pilot` loads a single
@@ -474,12 +469,6 @@ export interface FrozenExtractResponse extends BaseMessage {
 export interface FrozenControlResultMessage extends BaseMessage {
   type: 'frozen:control:result';
   payload: { report: FrozenControlReport };
-}
-
-/** `frozen:manifest:get:response`. Extension -> WebView. */
-export interface FrozenManifestGetResponse extends BaseMessage {
-  type: 'frozen:manifest:get:response';
-  payload: { manifest: FrozenManifestInfo | null; datasetDir: string };
 }
 
 /** `frozen:load:response`. Extension -> WebView. */
