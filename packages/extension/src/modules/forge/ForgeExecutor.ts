@@ -1871,9 +1871,10 @@ export interface ExecutionSummary {
    * The records of `linkedCount` linked to a record the run created itself —
    * the target refused the row as a copy of a record the run had just
    * written — which a removal of the run takes with that record: counted as
-   * each node's line says them. Of a run whose ids are in its journal
-   * (`remapInJournal`), those of the part a removal takes them with
-   * (`ForgeRunStore.linkedToCreatedCount`). Absent when there were none.
+   * each node's line says them, the record created in this part or an
+   * earlier one. Of a run whose ids are in its journal (`remapInJournal`),
+   * read from it on the same rule (`ForgeRunStore.linkedToCreatedCount`).
+   * Absent when there were none.
    */
   linkedToCreatedCount?: number;
   /**
@@ -12322,8 +12323,9 @@ export class ForgeExecutor {
       linkedToCreatedCount: 0,
     });
     const withTheirRecord = state.store?.withTheirRecordCount ?? 0;
-    // What the part's removal takes with the records it created, read from
-    // its journal, in place of what the lines counted.
+    // The rows linked to a record the run created, in any part, read from
+    // its journal in place of what the lines counted, on the rule they count
+    // them by.
     const linkedToCreated = state.store?.linkedToCreatedCount() ?? 0;
     return {
       ...summary,

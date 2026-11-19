@@ -319,7 +319,7 @@ describe('ForgeRunStore', () => {
       expect(again.statusesOwed()).toEqual(new Map());
     });
 
-    it('counts the rows this part linked to a record it created itself, apart from those linked to what the target held', () => {
+    it('counts the rows this part linked to a record the run created, in any part, apart from those linked to what the target held', () => {
       // Told apart by their first fifteen characters, as a removal tells records.
       const { store, file } = freshStore();
       store.setMapping('created', src('001', 1), tgt('001', 1_000), 'Account');
@@ -337,12 +337,18 @@ describe('ForgeRunStore', () => {
       expect(store.linkedToCreatedCount()).toBe(3);
       store.close();
 
-      // A part that takes the run up counts its own: a record an earlier part
-      // created is that part's to remove.
+      // A part that takes the run up counts its own rows linked to a record
+      // the run created in any part, as its lines say them (`createdTarget`):
+      // counted only when this part created it, a row linked to the first
+      // part's account was said already in the target. The rows earlier
+      // parts linked are theirs.
       const again = ForgeRunStore.open(memoryRunFile(file.text()));
       again.beginPart(at);
       again.setMapping('existing', src('001', 5), tgt('001', 1_000), 'Account');
-      expect(again.linkedToCreatedCount()).toBe(0);
+      again.setMapping('existing', src('001', 6), tgt('001', 90_000), 'Account');
+      again.setMapping('existing', src('003', 9), tgt('003', 7_000), 'Contact');
+      expect(again.createdTarget(tgt('001', 1_000))).toBe(true);
+      expect(again.linkedToCreatedCount()).toBe(2);
       expect(freshStore().store.linkedToCreatedCount()).toBe(0);
     });
 

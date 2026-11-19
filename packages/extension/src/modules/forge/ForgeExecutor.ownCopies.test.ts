@@ -352,3 +352,52 @@ describe('the line of an object whose rows were linked to records the run create
     ]);
   });
 });
+
+describe('the part of a run taken up where it stopped', () => {
+  /** The account the first part wrote for pair one before the run stopped. */
+  const PART_ONE = targetId('001', 500);
+  const OWN = '2 linked to records the run created (the target refused them as copies of those)';
+
+  it('counts, in a summary that keeps its ids in its journal, the rows linked to a record an earlier part created, as its line does', async () => {
+    // The line asks whether the record a refusal names is the run's in any
+    // part; the summary counted only those this part created, and said the
+    // row linked to the first part's account was already in the target.
+    const orgsOfTheRun = orgs();
+    orgsOfTheRun.records.set(PART_ONE, {
+      object: 'Account',
+      row: { Name: 'Pair one', Ext__c: 'P1' },
+      created: '2026-11-14T04:58:10.000Z',
+    });
+    const file = memoryRunFile(
+      `${JSON.stringify({ run: { journalId: 'j', targetOrgId: 'tgt', startedAt: RUN_STARTED } })}\n`,
+    );
+    const first = ForgeRunStore.open(file);
+    first.beginPart(new Date(RUN_STARTED));
+    first.setMapping('created', src('001', 1), PART_ONE, 'Account');
+    first.close();
+    const store = ForgeRunStore.open(memoryRunFile(file.text()));
+    const events: ForgeProgressEvent[] = [];
+
+    const summary = await orgsOfTheRun.executor.execute(
+      GRAPH,
+      'src',
+      'tgt',
+      (event) => {
+        events.push(event);
+      },
+      { stream: { store, summaryBound: 0 } },
+    );
+    store.close();
+
+    expect(summary.remapInJournal).toBe(true);
+    // The second of pair one, linked to the first part's account, and the
+    // second of pair two, linked to this part's.
+    expect(endedOn(events, 'Account')).toContain(
+      '1 succeeded, 1 linked to records already in the target, ' + OWN,
+    );
+    expect(summary.linkedToCreatedCount).toBe(2);
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 3, linkedToCreated: 2, unidentified: 0 },
+    ]);
+  });
+});

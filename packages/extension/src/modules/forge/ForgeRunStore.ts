@@ -819,14 +819,17 @@ export class ForgeRunStore {
   }
 
   /**
-   * Of the rows this part linked to a record, those linked to one this part
-   * created itself — the target refused the row as a copy of a record the
-   * run had just written, or of one a job of the part wrote under no row —
-   * and not marked as written with their record (`withTheirRecord`): a
-   * removal of the part takes that record, and they go with it. Counted as
-   * linked to a record the target held, a removal said ten of a run's own
-   * accounts would stay. Read from the journal, and only when the part linked
-   * any: three passes over its lines, a few bytes a record held, and no id.
+   * Of the rows this part linked to a record, those linked to one the run
+   * created itself, in this part or an earlier one — the target refused the
+   * row as a copy of a record the run had written, or of one a job of the run
+   * wrote under no row — and not marked as written with their record
+   * (`withTheirRecord`). Counted as linked to a record the target held, a
+   * removal said ten of a run's own accounts would stay. Counted only when
+   * this part created the record, a part that took the run up said a row
+   * linked to the first part's account was in the target before the run,
+   * where its line, asking `createdTarget`, said the run had created it.
+   * Read from the journal, and only when the part linked any: three passes
+   * over its lines, a few bytes a record held, and no id.
    */
   linkedToCreatedCount(): number {
     let linked = 0;
@@ -837,15 +840,17 @@ export class ForgeRunStore {
       const value = parseLine(this.lineAt(offset, length));
       return value ? String(value[2]).slice(0, 15) : '';
     };
-    /** The code of this part's latest word on the mapping a line holds, when the line is that word and names its object. */
-    const latestCode = (line: JournalLine, value: unknown[]): number | undefined => {
-      if (line.offset < start) return undefined;
+    /** The code of the latest word, in any part, on the mapping a line holds, when the line is that word and names its object. */
+    const latestWord = (line: JournalLine, value: unknown[]): number | undefined => {
       const code = CODE_OF_TAG[String(value[0])];
       if (code === undefined || code === READ || !value[3]) return undefined;
       const sourceId = String(value[1]);
       const slot = this.index.find(sourceId, hashA(sourceId), hashB(sourceId), line.offset);
       return slot >= 0 && this.index.offsetOf(slot) === line.offset ? code : undefined;
     };
+    /** The same, of this part's lines alone. */
+    const latestCode = (line: JournalLine, value: unknown[]): number | undefined =>
+      line.offset < start ? undefined : latestWord(line, value);
     const keyed = (index: SourceIdIndex, key: string, line: JournalLine): void => {
       const a = hashA(key);
       const b = hashB(key);
@@ -864,11 +869,12 @@ export class ForgeRunStore {
       keyed(named, String(value[2]).slice(0, 15), line);
     }
     if (named.size === 0) return 0;
-    // Of them, those this part created: by a row, or by a job under no row.
+    // Of them, those the run created, in any part: by a row, or by a job
+    // under no row.
     const own = new SourceIdIndex(targetKeyAt);
     const jobsOwn = new Set<string>();
     for (const line of this.lines()) {
-      if (!line.text.startsWith('["') || line.offset < start) continue;
+      if (!line.text.startsWith('["')) continue;
       const value = parseLine(line.text);
       if (!value) continue;
       if (value[0] === UNATTRIBUTED_TAG && Array.isArray(value[2])) {
@@ -878,7 +884,7 @@ export class ForgeRunStore {
         }
         continue;
       }
-      if (latestCode(line, value) !== CREATED) continue;
+      if (latestWord(line, value) !== CREATED) continue;
       const key = String(value[2]).slice(0, 15);
       if (has(named, key)) keyed(own, key, line);
     }
