@@ -152,7 +152,7 @@ describe('StepConfigPanel', () => {
     const labels = [...select.options].map((option) => option.textContent);
     expect(labels).toContain('Saved');
     expect(labels).not.toContain('seed.templates.minimalDemo.name');
-    expect(screen.getByTestId('config-seed-note').textContent).toContain('Recent runs');
+    expect(screen.getByTestId('config-seed-note').textContent).toContain("Seed's History");
   });
 
   it('keeps a template no longer there chosen, and writes the template picked', () => {

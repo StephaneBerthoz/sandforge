@@ -4,7 +4,7 @@ Eine neue Developer Edition, ein Trailhead-Playground oder eine frische Sandbox 
 
 1. Öffnen Sie **Seed**: Es öffnet sich auf seiner Vorlagengalerie, mit **CRM-Starter**, markiert mit _Hier beginnen_, an erster Stelle. Diese Vorlage ist für die 5 MB einer Developer Edition bemessen.
 2. Klicken Sie bei einer Vorlage auf **Diese verwenden**, prüfen Sie die Datensatzanzahlen und die bereits ausgewählte Org und klicken Sie dann auf **Seed starten**.
-3. Öffnen Sie aus den Ergebnissen einen erstellten Datensatz in Salesforce. **Frühere Seeds** entfernt jederzeit, was ein Lauf geschrieben hat.
+3. Öffnen Sie aus den Ergebnissen einen erstellten Datensatz in Salesforce. **Verlauf**, unter der Galerie, entfernt jederzeit, was ein Lauf geschrieben hat.
 
 [Seed öffnen](command:sandforge.openSeed)
 

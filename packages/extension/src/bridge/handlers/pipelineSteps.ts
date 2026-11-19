@@ -1276,7 +1276,7 @@ function seedHandler(runners: PipelineStepRunners): StepHandler {
     const created = counted(result.totalRecordsCreated, 'record');
     // What a seed wrote stays in the org until someone takes it back, a seed
     // stopped part way included: the step says from where.
-    const takeBack = "take them back from Seed's Recent runs";
+    const takeBack = "take them back from Seed's History";
     if (result.cancelled) {
       throw new StepCancelledError(
         `${who} was cancelled: it had created ${created} in ${org}, which stay there; ${takeBack}.`,

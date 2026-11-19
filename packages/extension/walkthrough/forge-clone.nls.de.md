@@ -6,7 +6,7 @@ Kopieren Sie einen echten Datensatz und alles, was daran hängt, aus einer ander
 2. Wählen Sie die **Ziel-Org**, die Org, die Sie füllen: **Graph ermitteln** bleibt bis dahin gesperrt.
 3. Fügen Sie die ID oder URL eines Datensatzes in **Datensatz-ID oder Salesforce-URL** ein — ein Account eignet sich gut. **Tiefe** (bis **Tief (5 Ebenen)**), **Datensätze pro Objekt** und **PII anonymisieren** stehen über der Schaltfläche: Stellen Sie sie jetzt ein, denn sie bestimmen, was die Ermittlung liest.
 4. Klicken Sie auf **Graph ermitteln**, dann auf **Weiter zur Überprüfung**.
-5. In der Überprüfung prüft **Simulieren** jeden Datensatz und sendet nichts; **Testlauf im Ziel** lässt das Ziel eine Stichprobe testen, die zurückgesetzt wird, und kostet API-Aufrufe; **Forge ausführen** schreibt. **Die von diesem Durchlauf erstellten Datensätze entfernen**, in den Ergebnissen oder unter **Letzte Durchläufe**, nimmt den Durchlauf zurück.
+5. In der Überprüfung prüft **Simulieren** jeden Datensatz und sendet nichts; **Testlauf im Ziel** lässt das Ziel eine Stichprobe testen, die zurückgesetzt wird, und kostet API-Aufrufe; **Forge ausführen** schreibt. **Die von diesem Durchlauf erstellten Datensätze entfernen**, in den Ergebnissen oder unter **Verlauf**, nimmt den Durchlauf zurück.
 
 Eilig? **Direkt klonen**, in **Weitere Startmöglichkeiten** unterhalb von **Graph ermitteln**, startet das Klonen, sobald die Ermittlung antwortet, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Metadatenvergleich zwischen den beiden Orgs wird dann nicht ausgeführt. Ein Graph mit mehr als 25 Objekten wird in einer Tabelle gelistet statt gezeichnet; der Umschalter **Graph-Ansicht** / **Tabellenansicht** und die Einstellung `sandforge.forge.graphView` entscheiden.
 

@@ -20,7 +20,7 @@ An Agentforce agent is tested on records: a customer who writes in, the case the
    sf agent test run --api-name <name> --wait 10 -o <alias>
    ```
 
-4. Later, from **Earlier seeds**: the run's **Agentforce test file** writes the file once the org has an agent.
+4. Later, from **History**: the run's **Agentforce test file** writes the file once the org has an agent.
 
 ## From the command line
 

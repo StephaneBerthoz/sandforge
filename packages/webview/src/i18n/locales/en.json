@@ -1126,7 +1126,7 @@
       "dropped_one": "What this seed created is no longer kept: on {{date}}, the runs kept on this machine passed their bound and dropped it, its {{formatted}} record still in {{org}} ({{objects}}). Run in a terminal, the line below lists every record you created in {{org}} since the day the seed started, its record among them, and deletes nothing; the same line without --dry-run deletes what it counted.",
       "dropped_other": "What this seed created is no longer kept: on {{date}}, the runs kept on this machine passed their bound and dropped it, {{formatted}} records still in {{org}} ({{objects}}). Run in a terminal, the line below lists every record you created in {{org}} since the day the seed started, its records among them, and deletes nothing; the same line without --dry-run deletes what it counted.",
       "droppedWays": "Or rewind the org to a checkpoint taken before it, on Checkpoints; or empty its objects in DataOps → Emptying → Empty objects, which deletes all their records, not this seed's alone.",
-      "historyTitle": "Earlier seeds",
+      "historyTitle": "History",
       "historyNote": "The seeds this extension kept, newest first: those whose records are still in their org can be removed, also after the window was reloaded. A seed whose records are still in its org stays listed until it is removed; of the seeds removed, the 20 latest are listed.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} record created",
       "historyRun_other": "{{date}} · {{org}} · {{formatted}} records created",
@@ -2939,7 +2939,7 @@
     "templateGone": "A template that is no longer saved",
     "stepConfigSeedTemplate": "Seed template",
     "seedTemplateSelect": "Choose a template",
-    "seedStepNote": "Each run adds the template's records: take them back from Seed's Recent runs. A pipeline never seeds a production org.",
+    "seedStepNote": "Each run adds the template's records: take them back from Seed's History. A pipeline never seeds a production org.",
     "stepConfigMaskingTemplate": "Masking template",
     "maskingTemplateSelect": "Choose a template",
     "stepConfigMaskingObject": "Object",
@@ -3700,7 +3700,7 @@
       "saferCopies1620": "Safer copies between orgs",
       "saferCopies1620Desc": "Sync now writes parents first, never copies again what an earlier run copied, and checks volume, storage and the day's emails before writing. Seed's Clone from Org works between any two orgs and hides real emails and phone numbers. Every run that writes shows in Live Operations with a Stop, DataOps backups can be deleted, and keyboard and screen-reader users can follow every flow.",
       "takeBack1630": "Every run can be taken back",
-      "takeBack1630Desc": "What CSV Upload and Clone from Org create is listed in Earlier seeds and can be removed, and a run whose window closed during a Bulk job still removes that job's records. Sync now sets the lookups between objects that point at each other, its removal can sweep what the target's automation created, and every page loads lighter.",
+      "takeBack1630Desc": "What CSV Upload and Clone from Org create is listed in Seed's History and can be removed, and a run whose window closed during a Bulk job still removes that job's records. Sync now sets the lookups between objects that point at each other, its removal can sweep what the target's automation created, and every page loads lighter.",
       "undoOverwrites1640": "Updates can be taken back",
       "undoOverwrites1640Desc": "What a Sync update writes over in the target is kept first, and removing the run gives the records their values back. A Sync run from the command line can be removed even when it was killed part way, and every page opens under 900 kB.",
       "beforeWrites1650": "Told before it writes",
@@ -4066,14 +4066,14 @@
       "step2": "Paste a Record ID, a query on the SOQL tab, or pick ALL to copy the whole org; click Discover Graph.",
       "step3": "When discovery ends, click Continue to Review.",
       "step4": "Click Execute Forge, then read the Inserted card once the run ends.",
-      "tip": "Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them."
+      "tip": "Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in History, deletes them."
     },
     "seed": {
       "step1": "Under Quick Seed from Template, press Use this on CRM Starter, marked Start here.",
       "step2": "Pick the org under Select target org, then check the counts under Record Count.",
       "step3": "Press Start seeding and follow each object's progress until the results show.",
       "step4": "On the results, press Open a created Account in your org to see the records.",
-      "tip": "Nothing is written before Start seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back."
+      "tip": "Nothing is written before Start seeding; Remove what this run created, on the results or in History, takes the seed back."
     },
     "checkpoint": {
       "step1": "Pick a sandbox, scratch org or Developer Edition in the org list at the top.",
@@ -4475,7 +4475,7 @@
       "step5": "Execute toward your sandbox after Review, or without it with Clone directly — IDs are remapped"
     },
     "history": {
-      "title": "Recent runs",
+      "title": "History",
       "olderTitle": "Older runs",
       "olderHint": "Runs no longer listed above whose records can still be removed.",
       "olderRecords_one": "{{formatted}} record to remove from {{org}}",
@@ -4684,7 +4684,7 @@
     "aborted": "STOP ASKED",
     "stopping": "STOPPING...",
     "stoppingNote": "Stop asked: the run stops once the step under way is done, then says what it wrote.",
-    "stopUnanswered": "The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.",
+    "stopUnanswered": "The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in History once the run answers.",
     "backToStart": "Back to the start",
     "stopped": "STOPPED",
     "done": "Done",
@@ -4875,7 +4875,7 @@
       "saveHint": "It keeps the run's record ID or query, its depth, caps and options, the objects it leaves out, the decisions taken on its gaps, its anonymization down to each field, its file copy (never the acceptance) and the target org. Apply it from the Template tab, or export it to a file.",
       "nameRequired": "Name the template to save it.",
       "saved": "Saved as “{{name}}”. It is listed under Your templates in the Template tab.",
-      "wholeOrg": "A clone of the whole org is not kept as a template, which keeps a clone from a record or a query. Once it has run, Recent runs on the Forge page → Reuse configuration puts its settings back in the form."
+      "wholeOrg": "A clone of the whole org is not kept as a template, which keeps a clone from a record or a query. Once it has run, History on the Forge page → Reuse configuration puts its settings back in the form."
     },
     "idMapping": {
       "title": "Record Id mapping",
@@ -7962,7 +7962,7 @@
     },
     "resumeUnavailable": {
       "explanation": "This run cannot be taken up where it stopped: it is being taken up, was taken up already or its run ended, it is no longer in the history, its journal is missing or does not say how it was set up, or its records were removed. Nothing was written.",
-      "action": "Being taken up already: wait for that run to end. Otherwise, in Recent runs, remove the records this run created, then Reuse configuration and run the clone again: run again without the removal, the clone writes those records a second time."
+      "action": "Being taken up already: wait for that run to end. Otherwise, in History, remove the records this run created, then Reuse configuration and run the clone again: run again without the removal, the clone writes those records a second time."
     },
     "resumeTargetChanged": {
       "explanation": "The org this run wrote to is no longer the one it was — refreshed or replaced since — or is no longer registered in SandForge. Nothing was written.",
@@ -7982,7 +7982,7 @@
     },
     "runNotInHistory": {
       "explanation": "This run is no longer in Forge's history, which keeps the latest runs: what it wrote is no longer known here. Nothing was read or written.",
-      "action": "Look under Older runs, below Recent runs: a run whose records can still be removed is listed there. Otherwise a checkpoint taken before the run takes the org back (Checkpoints → Rewind…), and DataOps → Emptying → Empty objects empties its objects, every record of them."
+      "action": "Look under Older runs, in History: a run whose records can still be removed is listed there. Otherwise a checkpoint taken before the run takes the org back (Checkpoints → Rewind…), and DataOps → Emptying → Empty objects empties its objects, every record of them."
     },
     "removalRunning": {
       "explanation": "A removal of this run is already under way, from this page or another: a second one would ask, and delete, twice. Nothing more was deleted.",

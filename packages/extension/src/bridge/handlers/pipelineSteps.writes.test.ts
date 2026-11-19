@@ -299,9 +299,7 @@ describe('the Seed step', () => {
   it('says what it created and where it is taken back from', async () => {
     const result = await executorWith(runners()).execute(step('seed', SEED), context());
     expect(result.status).toBe('completed');
-    expect(result.summary).toBe(
-      "Seeded 6 records into dev: take them back from Seed's Recent runs.",
-    );
+    expect(result.summary).toBe("Seeded 6 records into dev: take them back from Seed's History.");
     expect(result.output).toMatchObject({ runId: 'run-1', totalRecordsCreated: 6 });
   });
 

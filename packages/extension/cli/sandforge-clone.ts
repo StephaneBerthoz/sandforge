@@ -1311,7 +1311,7 @@ Remove what a run created:
                          or the journal of a run: every part of it, the run it
                          took up and each time it was taken up
                          Deletes from --target the records that run created,
-                         as the wizard removes a run from Recent runs: children
+                         as the wizard removes a run from History: children
                          first, never a record the target already held, and a
                          record kept while records that stay depend on it. The
                          target must be the org the run wrote to. A dry run's

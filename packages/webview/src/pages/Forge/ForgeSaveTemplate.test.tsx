@@ -132,7 +132,7 @@ describe('ForgeSaveTemplate', () => {
     expect(opener.disabled).toBe(true);
     const hint = screen.getByTestId('review-save-template-whole-org');
     expect(opener.getAttribute('aria-describedby')).toBe(hint.id);
-    expect(hint.textContent).toContain('Recent runs');
+    expect(hint.textContent).toContain('History on the Forge page');
     expect(hint.textContent).toContain('Reuse configuration');
     fireEvent.click(opener);
     expect(screen.queryByTestId('review-save-template-form')).toBeNull();

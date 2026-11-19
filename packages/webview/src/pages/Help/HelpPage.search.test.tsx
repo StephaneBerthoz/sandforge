@@ -90,11 +90,11 @@ describe('Help search, in the English the page renders', () => {
 
   it('marks what it found in a module’s how-to as in its text', () => {
     render(<HelpPage />);
-    search('earlier seeds');
+    search('takes the seed back');
     const steps = screen.getByTestId('how-to-steps-seed');
     expect(
       Array.from(steps.querySelectorAll('mark')).map((mark) => mark.textContent?.toLowerCase()),
-    ).toEqual(expect.arrayContaining(['earlier', 'seeds']));
+    ).toEqual(expect.arrayContaining(['takes', 'seed', 'back']));
   });
 
   it('closes a found section by its header, and opens it again, while the search stays', () => {

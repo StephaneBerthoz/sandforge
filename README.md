@@ -37,7 +37,7 @@ A Developer Edition, a Trailhead playground or a fresh scratch org is all you ne
 2. **Open Seed**: the launcher's **Fill \<alias\> with demo data** opens Seed's template gallery on that org.
 3. **Pick a template**: **CRM Starter**, marked _Start here_, writes about 300 linked accounts, contacts, products, opportunities and cases. Click **Use this**.
 4. Click **Start seeding**. A seed that would not fit the org's data storage, or the emails it has left today, is refused before its first record.
-5. **Take it back** whenever you want, from **What this run created** on the results or **Earlier seeds** under the gallery.
+5. **Take it back** whenever you want, from **What this run created** on the results or **History** under the gallery.
 
 ![Seed — the template gallery that fills an empty dev org, CRM Starter first](assets/screenshots/seed.png)
 
@@ -108,15 +108,15 @@ Safety is on by default: Forge and a Frozen Dataset load refuse a Production org
 
 | What the org needs                                       | Use                                      | Taking it back                                                                                                       |
 | -------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Nothing copied: realistic records in an empty org        | **Seed**, from a template of its gallery | **What this run created**, on the results, or **Earlier seeds**                                                      |
-| One record, or a query's records, and what hangs on them | **Forge**                                | **Remove the records this run created**, on the results or under **Recent runs**                                     |
+| Nothing copied: realistic records in an empty org        | **Seed**, from a template of its gallery | **What this run created**, on the results, or **History**                                                            |
+| One record, or a query's records, and what hangs on them | **Forge**                                | **Remove the records this run created**, on the results or under **History**                                         |
 | Whole objects, filtered and mapped, as often as needed   | **Sync**                                 | **Remove what this run created**, on the results or the run's history entry                                          |
 | Whole objects in dependency order, in one go             | **Autopilot**                            | A run cannot be removed; **Rewind…** to a checkpoint taken before it: **Checkpoint first**, on its review, takes one |
 | The same set after every sandbox refresh                 | **Frozen Dataset**                       | **Remove the records this load created**, under **Remove the last load** on the Load tab                             |
-| Everything the source org holds, in one go               | **Forge**, the ALL depth                 | **Remove the records this run created**, under **Recent runs**                                                       |
+| Everything the source org holds, in one go               | **Forge**, the ALL depth                 | **Remove the records this run created**, under **History**                                                           |
 | Nothing left: the objects you pick, or the whole org     | **DataOps → Emptying**                   | **Undo**, on its results, while the recycle bin holds them                                                           |
 
-Seed's **CSV Upload** and **Copy records from another org** are taken back as a seed is, from their results or **Earlier seeds**: [the FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) says what each module can undo.
+Seed's **CSV Upload** and **Copy records from another org** are taken back as a seed is, from their results or **History**: [the FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) says what each module can undo.
 
 ---
 

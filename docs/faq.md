@@ -14,7 +14,7 @@ No. A free Developer Edition org works for all SandForge features. Scratch orgs 
 
 ### I have one empty org. Where do I start?
 
-With Seed's templates: no second org, no AI key. Connect the org (the launcher's **Connect your first org** card), click **Fill \<alias\> with demo data** at the top of the launcher, or **Seed** in its **Fill an org** group, and Seed opens on its template gallery. **CRM Starter**, marked _Start here_, writes accounts with their contacts, priced opportunities with their line items, and cases: 295 records, about 0.6 MB of the 5 MB a Developer Edition holds. **Use this**, check the counts and the org, **Start seeding**. A seed that would not fit in the org's data storage is refused before it writes anything and [offers the counts that fit](#a-run-does-not-fit-in-the-orgs-data-storage-what-can-i-do), one that would make its automation send more emails than it has left today is refused too, and **Earlier seeds** removes a seed whenever you want. See [Getting Started](getting-started.md#one-empty-org-fill-it-with-seed).
+With Seed's templates: no second org, no AI key. Connect the org (the launcher's **Connect your first org** card), click **Fill \<alias\> with demo data** at the top of the launcher, or **Seed** in its **Fill an org** group, and Seed opens on its template gallery. **CRM Starter**, marked _Start here_, writes accounts with their contacts, priced opportunities with their line items, and cases: 295 records, about 0.6 MB of the 5 MB a Developer Edition holds. **Use this**, check the counts and the org, **Start seeding**. A seed that would not fit in the org's data storage is refused before it writes anything and [offers the counts that fit](#a-run-does-not-fit-in-the-orgs-data-storage-what-can-i-do), one that would make its automation send more emails than it has left today is refused too, and Seed's **History** removes a seed whenever you want. See [Getting Started](getting-started.md#one-empty-org-fill-it-with-seed).
 
 ### Does SandForge modify production data?
 
@@ -60,8 +60,8 @@ Several modules write records into an org; which one depends on what the org nee
 
 | What the org needs                                       | Use                                      | Taking it back                                                                           |
 | -------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Nothing copied: realistic records in an empty org        | **Seed**, from a template of its gallery | **What this run created**, on the results, or **Earlier seeds**                          |
-| One record, or a query's records, and what hangs on them | **Forge**                                | **Remove the records this run created**, on the results or under **Recent runs**         |
+| Nothing copied: realistic records in an empty org        | **Seed**, from a template of its gallery | **What this run created**, on the results, or **History**                                |
+| One record, or a query's records, and what hangs on them | **Forge**                                | **Remove the records this run created**, on the results or under **History**             |
 | Whole objects, filtered and mapped, as often as needed   | **Sync**                                 | **Remove what this run created**, on the results or the run's history entry              |
 | Whole objects in dependency order, in one go             | **Autopilot**                            | A run cannot be removed; **Rewind…** to a checkpoint taken before it                     |
 | The same set after every sandbox refresh                 | **Frozen Dataset**                       | **Remove the records this load created**, under **Remove the last load** on the Load tab |
@@ -74,12 +74,12 @@ A run that keeps the list of the records it created can be taken back: its recor
 
 | Module                                          | Taken back from                                                                                                                                                                                                     |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Forge                                           | **Remove the records this run created**, on the results, under **Recent runs**, and under **Older runs** once a run leaves that list                                                                                |
-| Seed: a template (Quick Seed) or the wizard     | **What this run created**, on the results, and **Earlier seeds**, under the gallery: every seed not removed, and the last 20 removed                                                                                |
+| Forge                                           | **Remove the records this run created**, on the results, under **History**, and under **Older runs** once a run leaves that list                                                                                    |
+| Seed: a template (Quick Seed) or the wizard     | **What this run created**, on the results, and **History**, under the gallery: every seed not removed, and the last 20 removed                                                                                      |
 | Sync                                            | **Remove what this run created**, on the results, on the run's history entry, and under **Runs that never ended**; what it wrote over is given back, and what a delta run deleted brought back from the recycle bin |
 | Sync: the Real-Time tab                         | **Earlier sessions**, at the bottom of the tab, once a session has stopped; what it wrote over is given back, and what it deleted brought back from the recycle bin                                                 |
 | Frozen Dataset                                  | **Remove the records this load created**, under **Remove the last load** on the Load tab                                                                                                                            |
-| Seed: CSV Upload, Copy records from another org | **What this run created**, on the results, and **Earlier seeds**, under the gallery, with the seeds                                                                                                                 |
+| Seed: CSV Upload, Copy records from another org | **What this run created**, on the results, and **History**, under the gallery, with the seeds                                                                                                                       |
 | Autopilot                                       | Not removable: a run keeps no list of what it created; **Checkpoint first**, on its review, is the way back                                                                                                         |
 | DataOps Masking                                 | **Restore** puts back the values a snapshot holds; it deletes nothing                                                                                                                                               |
 
@@ -150,13 +150,13 @@ A fit takes up to 80 % of what the org says it has left, half a MB set aside fir
 
 ### How do I import data from a CSV file?
 
-Navigate to **Seed**, select **CSV Upload** under the template gallery, choose your target org and object, then drag-and-drop your CSV file. SandForge auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching. You can override any mapping manually. The validator checks for type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs before execution. Supported format: UTF-8 CSV with headers (BOM is stripped automatically). What it created is listed in **Earlier seeds** and taken back from there, as a seed is.
+Navigate to **Seed**, select **CSV Upload** under the template gallery, choose your target org and object, then drag-and-drop your CSV file. SandForge auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching. You can override any mapping manually. The validator checks for type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs before execution. Supported format: UTF-8 CSV with headers (BOM is stripped automatically). What it created is listed in **History** and taken back from there, as a seed is.
 
 ### How do I clone records from another org?
 
 With **Forge**, for a record and what hangs on it: paste the record's Id or URL, pick the source and the target, **Discover Graph**, then **Continue to Review** -- see the [Forge Quickstart](forge-quickstart.md). For several records, a query on the **SOQL** tab clones each record it chooses with what it reaches, a record they share written once, 200 at most unless `sandforge.forge.maxRoots` says more, up to 2,000: see [Clone the records a query chooses](forge-reference.md#clone-the-records-a-query-chooses). For whole objects, **Sync** copies the objects you name, filtered and mapped, and **Autopilot** copies the objects you select in the order their dependencies set. Forge and Sync runs can be removed; an Autopilot run cannot.
 
-Seed's **Copy records from another org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. What it created in the target is kept, and taken back from its results or **Earlier seeds**, as a seed is.
+Seed's **Copy records from another org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. What it created in the target is kept, and taken back from its results or **History**, as a seed is.
 
 ### Can Forge copy a whole org?
 

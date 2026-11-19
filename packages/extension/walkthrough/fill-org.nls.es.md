@@ -4,7 +4,7 @@ Una Developer Edition recién creada, un playground de Trailhead o un sandbox nu
 
 1. Abra **Seed**: se abre en su galería de plantillas, con el **Kit inicial de CRM**, marcado _Empiece aquí_, en primer lugar. Está dimensionado para los 5 MB de una Developer Edition.
 2. Haga clic en **Usar esta** en una plantilla, revise sus cantidades de registros y la org, ya seleccionada, y haga clic en **Iniciar Seed**.
-3. Desde los resultados, abra en Salesforce un registro creado. **Seeds anteriores** elimina lo que escribió una ejecución, cuando quiera.
+3. Desde los resultados, abra en Salesforce un registro creado. **Historial**, bajo la galería, elimina lo que escribió una ejecución, cuando quiera.
 
 [Abrir Seed](command:sandforge.openSeed)
 

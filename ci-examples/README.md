@@ -175,7 +175,7 @@ A real clone stays in the sandbox unless you ask for its removal at the end of t
 - **Jenkins**: `REMOVE_AFTER` parameter (default unchecked)
 - **Azure DevOps**: `removeAfter` parameter (default `false`)
 
-The removal runs only after a real clone: a dry run created nothing, and `--remove` refuses its summary. It is the removal the wizard runs from **Recent runs**: it deletes the records the clone created, children first, and keeps a record the target already held, one changed since the clone (add `--include-changed` when your checks change them), and one that records staying in the org depend on. It exits `3` when it left records of the clone in the org, which fails the job; `clone-removal.json` says per object what became of them.
+The removal runs only after a real clone: a dry run created nothing, and `--remove` refuses its summary. It is the removal the wizard runs from **History**: it deletes the records the clone created, children first, and keeps a record the target already held, one changed since the clone (add `--include-changed` when your checks change them), and one that records staying in the org depend on. It exits `3` when it left records of the clone in the org, which fails the job; `clone-removal.json` says per object what became of them.
 
 It deletes nothing, and exits `1`, when the target runs a flow, an Apex trigger, a process or a workflow rule as the records are deleted — before or after a delete — or could not say what it runs: its output names each one. To remove all the same, ask for it:
 

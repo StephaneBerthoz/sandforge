@@ -1126,7 +1126,7 @@
       "dropped_one": "O que este seed criou não é mais guardado: em {{date}}, as execuções guardadas nesta máquina passaram do limite e o descartaram, seu registro ({{formatted}}) ainda em {{org}} ({{objects}}). Executada em um terminal, a linha abaixo lista cada registro que você criou em {{org}} desde o dia em que o seed começou, o dele entre eles, e não exclui nada; a mesma linha sem --dry-run exclui o que contou.",
       "dropped_other": "O que este seed criou não é mais guardado: em {{date}}, as execuções guardadas nesta máquina passaram do limite e o descartaram, {{formatted}} registros ainda em {{org}} ({{objects}}). Executada em um terminal, a linha abaixo lista cada registro que você criou em {{org}} desde o dia em que o seed começou, os dele entre eles, e não exclui nada; a mesma linha sem --dry-run exclui o que contou.",
       "droppedWays": "Ou volte a org a um ponto de verificação tirado antes dele, em Pontos de verificação; ou esvazie seus objetos em DataOps → Esvaziamento → Esvaziar objetos, que exclui todos os registros deles, não só os deste seed.",
-      "historyTitle": "Seeds anteriores",
+      "historyTitle": "Histórico",
       "historyNote": "Os seeds que esta extensão guardou, os mais recentes primeiro: aqueles cujos registros ainda estão na org podem ser removidos, também depois de recarregar a janela. Um seed cujos registros ainda estão na org permanece na lista até ser removido; dos seeds removidos, os 20 mais recentes são listados.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro criado",
       "historyRun_other": "{{date}} · {{org}} · {{formatted}} registros criados",
@@ -2939,7 +2939,7 @@
     "templateGone": "Um modelo que não está mais salvo",
     "stepConfigSeedTemplate": "Modelo de Seed",
     "seedTemplateSelect": "Escolha um modelo",
-    "seedStepNote": "Cada execução adiciona os registros do modelo: retire-os pelas execuções recentes de Seed. Um pipeline nunca gera dados em uma org de produção.",
+    "seedStepNote": "Cada execução adiciona os registros do modelo: retire-os pelo Histórico de Seed. Um pipeline nunca gera dados em uma org de produção.",
     "stepConfigMaskingTemplate": "Modelo de mascaramento",
     "maskingTemplateSelect": "Escolha um modelo",
     "stepConfigMaskingObject": "Objeto",
@@ -3700,7 +3700,7 @@
       "saferCopies1620": "Cópias entre orgs mais seguras",
       "saferCopies1620Desc": "O Sync agora grava primeiro os registros pai, nunca copia de novo o que uma execução anterior copiou e verifica volume, armazenamento e os e-mails do dia antes de gravar. A clonagem de outra org do Seed funciona entre quaisquer duas orgs e oculta e-mails e telefones reais. Toda execução que grava aparece em Live Operations com um botão de parar, os backups do DataOps podem ser excluídos, e com teclado e leitor de tela é possível seguir cada fluxo.",
       "takeBack1630": "Toda execução pode ser desfeita",
-      "takeBack1630Desc": "O que o Upload CSV e o Clonar de Org criam aparece em Seeds anteriores e pode ser removido, e uma execução cuja janela foi fechada durante um job Bulk ainda remove os registros desse job. O Sync agora define as pesquisas entre objetos que apontam um para o outro, a remoção pode limpar o que a automação do destino criou, e cada página carrega mais leve.",
+      "takeBack1630Desc": "O que o Upload CSV e o Clonar de Org criam aparece no Histórico de Seed e pode ser removido, e uma execução cuja janela foi fechada durante um job Bulk ainda remove os registros desse job. O Sync agora define as pesquisas entre objetos que apontam um para o outro, a remoção pode limpar o que a automação do destino criou, e cada página carrega mais leve.",
       "undoOverwrites1640": "Atualizações podem ser desfeitas",
       "undoOverwrites1640Desc": "O que uma atualização do Sync sobrescreve no destino é guardado antes, e remover a execução devolve aos registros os valores anteriores. Uma execução do Sync pela linha de comando pode ser removida mesmo se foi interrompida, e cada página abre abaixo de 900 kB.",
       "beforeWrites1650": "Avisado antes de gravar",
@@ -4066,14 +4066,14 @@
       "step2": "Cole um ID do registro ou uma consulta na aba SOQL, ou escolha ALL para copiar a org inteira, e clique em Descobrir grafo.",
       "step3": "Quando a descoberta terminar, clique em Continuar para a revisão.",
       "step4": "Clique em Executar Forge e, ao fim da execução, leia o cartão Inseridos.",
-      "tip": "Simular não grava nada; Ensaiar grava uma amostra e a reverte; Remover os registros que esta execução criou, em Execuções recentes, os apaga."
+      "tip": "Simular não grava nada; Ensaiar grava uma amostra e a reverte; Remover os registros que esta execução criou, em Histórico, os apaga."
     },
     "seed": {
       "step1": "Em Seed rápido a partir de modelo, clique em Usar este no modelo Kit inicial de CRM, marcado Comece aqui.",
       "step2": "Escolha a org em Selecionar org de destino e depois confira as quantidades em Quantidade de registros.",
       "step3": "Clique em Iniciar Seed e acompanhe o progresso de cada objeto até os resultados aparecerem.",
       "step4": "Nos resultados, clique em Abrir o primeiro registro criado (Account) em sua org para ver os dados.",
-      "tip": "Nada é gravado antes de Iniciar Seed; depois, Remover o que esta execução criou, nos resultados ou em Seeds anteriores, desfaz o seed."
+      "tip": "Nada é gravado antes de Iniciar Seed; depois, Remover o que esta execução criou, nos resultados ou em Histórico, desfaz o seed."
     },
     "checkpoint": {
       "step1": "Escolha uma sandbox, uma scratch org ou uma org Developer Edition na lista de orgs no topo.",
@@ -4475,7 +4475,7 @@
       "step5": "Execute para sua sandbox após a revisão, ou sem ela com Clonar diretamente — os IDs são remapeados"
     },
     "history": {
-      "title": "Execuções recentes",
+      "title": "Histórico",
       "olderTitle": "Execuções mais antigas",
       "olderHint": "Execuções que não aparecem mais acima e cujos registros ainda podem ser removidos.",
       "olderRecords_one": "{{formatted}} registro a remover de {{org}}",
@@ -4684,7 +4684,7 @@
     "aborted": "PARADA SOLICITADA",
     "stopping": "INTERROMPENDO...",
     "stoppingNote": "Parada solicitada: a execução para assim que a etapa em andamento terminar e depois diz o que gravou.",
-    "stopUnanswered": "A execução ainda não respondeu à parada. Talvez ainda esteja terminando uma etapa: o que ela gravar fica na org de destino e aparece em “Execuções recentes” assim que a execução responder.",
+    "stopUnanswered": "A execução ainda não respondeu à parada. Talvez ainda esteja terminando uma etapa: o que ela gravar fica na org de destino e aparece em “Histórico” assim que a execução responder.",
     "backToStart": "Voltar ao início",
     "stopped": "INTERROMPIDO",
     "done": "Concluído",
@@ -4875,7 +4875,7 @@
       "saveHint": "O modelo guarda o ID de registro ou a consulta da execução, a profundidade, os limites e as opções, os objetos que ela deixa de fora, as decisões tomadas sobre as divergências, a anonimização campo a campo, a cópia de arquivos (nunca a aceitação) e a org de destino. Aplique-o pela aba Modelo ou exporte-o para um arquivo.",
       "nameRequired": "Dê um nome ao modelo para salvá-lo.",
       "saved": "Salvo como “{{name}}”. Ele aparece em Seus modelos, na aba Modelo.",
-      "wholeOrg": "Um clone da org inteira não é guardado como modelo, que guarda um clone a partir de um registro ou de uma consulta. Depois que ele rodar, Execuções recentes na página Forge → Reutilizar a configuração põe as configurações dele de volta no formulário."
+      "wholeOrg": "Um clone da org inteira não é guardado como modelo, que guarda um clone a partir de um registro ou de uma consulta. Depois que ele rodar, Histórico na página Forge → Reutilizar a configuração põe as configurações dele de volta no formulário."
     },
     "idMapping": {
       "title": "Mapeamento de Ids",
@@ -7962,7 +7962,7 @@
     },
     "resumeUnavailable": {
       "explanation": "Esta execução não pode ser retomada de onde parou: está sendo retomada, já foi retomada ou sua execução terminou, não está mais no histórico, seu diário falta ou não diz como foi configurada, ou seus registros foram removidos. Nada foi gravado.",
-      "action": "Se já está sendo retomada, espere essa execução terminar. Se não, em Execuções recentes, remova os registros que esta execução criou, depois Reutilizar a configuração e execute a clonagem de novo: executada de novo sem a remoção, a clonagem grava esses registros pela segunda vez."
+      "action": "Se já está sendo retomada, espere essa execução terminar. Se não, em Histórico, remova os registros que esta execução criou, depois Reutilizar a configuração e execute a clonagem de novo: executada de novo sem a remoção, a clonagem grava esses registros pela segunda vez."
     },
     "resumeTargetChanged": {
       "explanation": "A org em que esta execução gravou não está mais registrada no SandForge, ou não é mais a que era — atualizada ou substituída desde então. Nada foi gravado.",
@@ -7982,7 +7982,7 @@
     },
     "runNotInHistory": {
       "explanation": "Esta execução não está mais no histórico do Forge, que guarda as mais recentes: o que ela gravou não é mais conhecido aqui. Nada foi lido nem gravado.",
-      "action": "Veja em Execuções mais antigas, abaixo de Execuções recentes: uma execução cujos registros ainda podem ser removidos aparece ali. Se não, um ponto de verificação criado antes da execução leva a org de volta (Pontos de verificação → Retroceder…), e DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos dela, todos os registros deles."
+      "action": "Veja em Execuções mais antigas, no Histórico: uma execução cujos registros ainda podem ser removidos aparece ali. Se não, um ponto de verificação criado antes da execução leva a org de volta (Pontos de verificação → Retroceder…), e DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos dela, todos os registros deles."
     },
     "removalRunning": {
       "explanation": "Já há uma remoção desta execução em andamento, desta página ou de outra: uma segunda perguntaria, e excluiria, duas vezes. Nada mais foi excluído.",

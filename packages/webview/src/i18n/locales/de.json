@@ -1126,7 +1126,7 @@
       "dropped_one": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt: Am {{date}} überschritten die auf diesem Rechner aufbewahrten Läufe ihre Grenze und verwarfen ihn, sein {{formatted}} Datensatz noch in {{org}} ({{objects}}). In einem Terminal ausgeführt, listet die Zeile unten jeden Datensatz, den Sie seit dem Tag, an dem der Seed begann, in {{org}} erstellt haben, seinen darunter, und löscht nichts; dieselbe Zeile ohne --dry-run löscht, was sie gezählt hat.",
       "dropped_other": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt: Am {{date}} überschritten die auf diesem Rechner aufbewahrten Läufe ihre Grenze und verwarfen ihn, {{formatted}} Datensätze noch in {{org}} ({{objects}}). In einem Terminal ausgeführt, listet die Zeile unten jeden Datensatz, den Sie seit dem Tag, an dem der Seed begann, in {{org}} erstellt haben, seine darunter, und löscht nichts; dieselbe Zeile ohne --dry-run löscht, was sie gezählt hat.",
       "droppedWays": "Oder setzen Sie die Org unter Prüfpunkte auf einen Prüfpunkt von davor zurück, oder leeren Sie seine Objekte unter DataOps → Leeren → Objekte leeren, was alle ihre Datensätze löscht, nicht nur die dieses Seeds.",
-      "historyTitle": "Frühere Seeds",
+      "historyTitle": "Verlauf",
       "historyNote": "Die Seeds, die diese Erweiterung aufbewahrt hat, die neuesten zuerst: Seeds, deren Datensätze noch in ihrer Org sind, können entfernt werden, auch nachdem das Fenster neu geladen wurde. Ein Seed, dessen Datensätze noch in seiner Org sind, bleibt aufgeführt, bis er entfernt wird; von den entfernten Seeds werden die 20 neuesten aufgeführt.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} Datensatz erstellt",
       "historyRun_other": "{{date}} · {{org}} · {{formatted}} Datensätze erstellt",
@@ -2939,7 +2939,7 @@
     "templateGone": "Eine nicht mehr gespeicherte Vorlage",
     "stepConfigSeedTemplate": "Seed-Vorlage",
     "seedTemplateSelect": "Vorlage wählen",
-    "seedStepNote": "Jede Ausführung fügt die Datensätze der Vorlage hinzu: Nehmen Sie sie über die letzten Ausführungen von Seed zurück. Eine Pipeline erzeugt nie Daten in einer Produktions-Org.",
+    "seedStepNote": "Jede Ausführung fügt die Datensätze der Vorlage hinzu: Nehmen Sie sie unter Verlauf in Seed zurück. Eine Pipeline erzeugt nie Daten in einer Produktions-Org.",
     "stepConfigMaskingTemplate": "Maskierungsvorlage",
     "maskingTemplateSelect": "Vorlage wählen",
     "stepConfigMaskingObject": "Objekt",
@@ -3700,7 +3700,7 @@
       "saferCopies1620": "Sicherere Kopien zwischen Orgs",
       "saferCopies1620Desc": "Sync schreibt jetzt zuerst die übergeordneten Datensätze, kopiert nie erneut, was ein früherer Lauf kopiert hat, und prüft vor dem Schreiben Menge, Speicher und die E-Mails des Tages. Das Klonen aus einer Org in Seed funktioniert zwischen zwei beliebigen Orgs und verbirgt echte E-Mail-Adressen und Telefonnummern. Jeder schreibende Lauf erscheint in Live Operations mit einem Stopp, DataOps-Sicherungen lassen sich löschen, und mit Tastatur und Screenreader lässt sich jeder Ablauf bedienen.",
       "takeBack1630": "Jeder Lauf lässt sich zurücknehmen",
-      "takeBack1630Desc": "Was CSV-Upload und Von Org klonen anlegen, steht unter Frühere Seeds und lässt sich entfernen, und ein Lauf, dessen Fenster während eines Bulk-Jobs geschlossen wurde, entfernt die Datensätze dieses Jobs trotzdem. Sync setzt jetzt die Nachschlagefelder zwischen Objekten, die aufeinander verweisen, das Entfernen kann bereinigen, was die Automatisierung der Ziel-Org angelegt hat, und jede Seite lädt schlanker.",
+      "takeBack1630Desc": "Was CSV-Upload und Von Org klonen anlegen, steht unter Verlauf in Seed und lässt sich entfernen, und ein Lauf, dessen Fenster während eines Bulk-Jobs geschlossen wurde, entfernt die Datensätze dieses Jobs trotzdem. Sync setzt jetzt die Nachschlagefelder zwischen Objekten, die aufeinander verweisen, das Entfernen kann bereinigen, was die Automatisierung der Ziel-Org angelegt hat, und jede Seite lädt schlanker.",
       "undoOverwrites1640": "Aktualisierungen lassen sich zurücknehmen",
       "undoOverwrites1640Desc": "Was eine Sync-Aktualisierung in der Ziel-Org überschreibt, wird zuerst gesichert, und das Entfernen des Laufs gibt den Datensätzen ihre vorherigen Werte zurück. Ein Sync-Lauf über die Befehlszeile lässt sich auch nach einem Abbruch entfernen, und jede Seite öffnet sich unter 900 kB.",
       "beforeWrites1650": "Vor dem Schreiben gewarnt",
@@ -4066,14 +4066,14 @@
       "step2": "Fügen Sie eine Datensatz-ID oder auf dem Tab SOQL eine Abfrage ein, oder wählen Sie ALL für die gesamte Org, und klicken Sie auf Graph ermitteln.",
       "step3": "Klicken Sie nach Abschluss der Ermittlung auf Weiter zur Überprüfung.",
       "step4": "Klicken Sie auf Forge ausführen und lesen Sie nach dem Durchlauf die Karte Eingefügt ab.",
-      "tip": "Simulieren schreibt nichts; Testlauf im Ziel schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Letzte Durchläufe, löscht sie."
+      "tip": "Simulieren schreibt nichts; Testlauf im Ziel schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Verlauf, löscht sie."
     },
     "seed": {
       "step1": "Klicken Sie unter Schnell-Seed aus Vorlage bei CRM-Starter, markiert mit Hier beginnen, auf Diese verwenden.",
       "step2": "Wählen Sie die Org unter Ziel-Org auswählen, und prüfen Sie dann die Anzahlen unter Datensatzanzahl.",
       "step3": "Klicken Sie auf Seed starten und verfolgen Sie den Fortschritt jedes Objekts bis zu den Ergebnissen.",
       "step4": "Klicken Sie in den Ergebnissen auf Ersten erstellten Datensatz (Account) in Ihrer Org öffnen, um die Daten zu sehen.",
-      "tip": "Vor Seed starten wird nichts geschrieben; danach macht Entfernen, was dieser Lauf erstellt hat (in den Ergebnissen oder unter Frühere Seeds), den Seed rückgängig."
+      "tip": "Vor Seed starten wird nichts geschrieben; danach macht Entfernen, was dieser Lauf erstellt hat (in den Ergebnissen oder unter Verlauf), den Seed rückgängig."
     },
     "checkpoint": {
       "step1": "Wählen Sie oben in der Org-Liste eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org.",
@@ -4475,7 +4475,7 @@
       "step5": "Nach der Überprüfung in Ihre Sandbox ausführen, oder ohne sie mit Direkt klonen — IDs werden neu vergeben"
     },
     "history": {
-      "title": "Letzte Durchläufe",
+      "title": "Verlauf",
       "olderTitle": "Ältere Durchläufe",
       "olderHint": "Durchläufe, die oben nicht mehr aufgeführt sind und deren Datensätze sich noch entfernen lassen.",
       "olderRecords_one": "{{formatted}} Datensatz aus {{org}} zu entfernen",
@@ -4684,7 +4684,7 @@
     "aborted": "STOPP ANGEFORDERT",
     "stopping": "WIRD ANGEHALTEN...",
     "stoppingNote": "Stopp angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
-    "stopUnanswered": "Der Lauf hat auf den Stopp noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Letzte Durchläufe“, sobald er antwortet.",
+    "stopUnanswered": "Der Lauf hat auf den Stopp noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Verlauf“, sobald er antwortet.",
     "backToStart": "Zurück zum Anfang",
     "stopped": "ANGEHALTEN",
     "done": "Fertig",
@@ -4875,7 +4875,7 @@
       "saveHint": "Die Vorlage behält die Datensatz-ID oder Abfrage des Durchlaufs, seine Tiefe, Obergrenzen und Optionen, die Objekte, die er auslässt, die zu seinen Abweichungen getroffenen Entscheidungen, seine Anonymisierung Feld für Feld, seine Dateikopie (nie die Zustimmung) und die Ziel-Org. Wenden Sie sie im Tab „Vorlage“ an, oder exportieren Sie sie in eine Datei.",
       "nameRequired": "Geben Sie der Vorlage einen Namen, um sie zu speichern.",
       "saved": "Als „{{name}}“ gespeichert. Sie steht unter „Ihre Vorlagen“ im Tab „Vorlage“.",
-      "wholeOrg": "Ein Klon der ganzen Org wird nicht als Vorlage gespeichert, die einen Klon aus einem Datensatz oder einer Abfrage festhält. Sobald er gelaufen ist, setzt Letzte Durchläufe auf der Forge-Seite → Konfiguration wiederverwenden seine Einstellungen wieder ins Formular."
+      "wholeOrg": "Ein Klon der ganzen Org wird nicht als Vorlage gespeichert, die einen Klon aus einem Datensatz oder einer Abfrage festhält. Sobald er gelaufen ist, setzt Verlauf auf der Forge-Seite → Konfiguration wiederverwenden seine Einstellungen wieder ins Formular."
     },
     "idMapping": {
       "title": "Datensatz-Id-Zuordnung",
@@ -7962,7 +7962,7 @@
     },
     "resumeUnavailable": {
       "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wird gerade fortgesetzt, wurde bereits fortgesetzt oder sein Lauf ist beendet, er ist nicht mehr im Verlauf, sein Journal fehlt oder sagt nicht, wie er eingerichtet war, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
-      "action": "Wird er bereits fortgesetzt, warten Sie, bis dieser Lauf endet. Sonst entfernen Sie unter Letzte Durchläufe die von diesem Lauf erstellten Datensätze, wählen dann Konfiguration wiederverwenden und führen den Klon erneut aus: Ohne das Entfernen erneut ausgeführt, schreibt der Klon diese Datensätze ein zweites Mal."
+      "action": "Wird er bereits fortgesetzt, warten Sie, bis dieser Lauf endet. Sonst entfernen Sie unter Verlauf die von diesem Lauf erstellten Datensätze, wählen dann Konfiguration wiederverwenden und führen den Klon erneut aus: Ohne das Entfernen erneut ausgeführt, schreibt der Klon diese Datensätze ein zweites Mal."
     },
     "resumeTargetChanged": {
       "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr in SandForge registriert oder nicht mehr dieselbe — seitdem aktualisiert oder ersetzt. Es wurde nichts geschrieben.",
@@ -7982,7 +7982,7 @@
     },
     "runNotInHistory": {
       "explanation": "Dieser Durchlauf ist nicht mehr im Verlauf von Forge, der die letzten Durchläufe behält: Was er geschrieben hat, ist hier nicht mehr bekannt. Es wurde nichts gelesen oder geschrieben.",
-      "action": "Sehen Sie unter Ältere Durchläufe nach, unterhalb von Letzte Durchläufe: Ein Durchlauf, dessen Datensätze sich noch entfernen lassen, steht dort. Sonst bringt ein vor dem Durchlauf erstellter Prüfpunkt die Org zurück (Prüfpunkte → Zurücksetzen…), und DataOps → Leeren → Objekte leeren leert seine Objekte, jeden ihrer Datensätze."
+      "action": "Sehen Sie unter Ältere Durchläufe nach, im Verlauf: Ein Durchlauf, dessen Datensätze sich noch entfernen lassen, steht dort. Sonst bringt ein vor dem Durchlauf erstellter Prüfpunkt die Org zurück (Prüfpunkte → Zurücksetzen…), und DataOps → Leeren → Objekte leeren leert seine Objekte, jeden ihrer Datensätze."
     },
     "removalRunning": {
       "explanation": "Ein Entfernen dieses Durchlaufs läuft bereits, von dieser Seite oder einer anderen: Ein zweites würde doppelt fragen und doppelt löschen. Es wurde nichts weiter gelöscht.",

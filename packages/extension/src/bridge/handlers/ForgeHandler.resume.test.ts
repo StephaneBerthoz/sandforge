@@ -729,7 +729,7 @@ describe('a run taken up where it stopped', () => {
     expect(refusal('wv-unjournaled')).toMatchObject({ code: 'RESUME_UNAVAILABLE' });
     expect(refusal('wv-unjournaled')?.message).not.toContain('Retry it from its results');
     expect(refusal('wv-unjournaled')?.message).toContain(
-      'remove the records it created (Forge → Recent runs), then run the clone again',
+      'remove the records it created (Forge → History), then run the clone again',
     );
   });
 

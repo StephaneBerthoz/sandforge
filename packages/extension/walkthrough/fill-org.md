@@ -4,7 +4,7 @@ A new Developer Edition, a Trailhead playground or a fresh sandbox holds a few s
 
 1. Open **Seed**: it opens on its template gallery, **CRM Starter**, marked _Start here_, first. It is sized for the 5 MB of a Developer Edition.
 2. Click **Use this** on a template, check its record counts and the org, already selected, then click **Start seeding**.
-3. From the results, open a created record in Salesforce. **Earlier seeds** removes what a run wrote, whenever you want.
+3. From the results, open a created record in Salesforce. **History**, under the gallery, removes what a run wrote, whenever you want.
 
 [Open Seed](command:sandforge.openSeed)
 

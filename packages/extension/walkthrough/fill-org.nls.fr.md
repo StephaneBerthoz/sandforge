@@ -4,7 +4,7 @@ Une Developer Edition toute neuve, un playground Trailhead ou une sandbox fraîc
 
 1. Ouvrez **Seed** : il s'ouvre sur sa galerie de modèles, **Kit de démarrage CRM**, marqué _Commencez ici_, en tête. Il est dimensionné pour les 5 Mo d'une Developer Edition.
 2. Cliquez sur **Utiliser** sur un modèle, vérifiez ses nombres d'enregistrements et l'org, déjà sélectionnée, puis cliquez sur **Lancer le seed**.
-3. Depuis les résultats, ouvrez un enregistrement créé dans Salesforce. **Seeds précédents** retire ce qu'une exécution a écrit, quand vous le souhaitez.
+3. Depuis les résultats, ouvrez un enregistrement créé dans Salesforce. **Historique**, sous la galerie, retire ce qu'une exécution a écrit, quand vous le souhaitez.
 
 [Ouvrir Seed](command:sandforge.openSeed)
 

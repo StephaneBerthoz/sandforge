@@ -121,6 +121,11 @@ describe('StepLibrary', () => {
         expect(library.getStepType(type)?.description).not.toMatch(/yet|not runnable/i);
       }
     });
+
+    it('sends the records a Seed step wrote back to Seed’s History, the title its list bears', () => {
+      // It named "Seed’s Recent runs", a title the Seed page never showed.
+      expect(library.getStepType('seed')?.description).toMatch(/taken back from Seed’s History$/);
+    });
   });
 
   describe('getStepType', () => {

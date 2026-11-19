@@ -1126,7 +1126,7 @@
       "dropped_one": "Lo que creó este seed ya no se conserva: el {{date}}, las ejecuciones conservadas en este equipo superaron su límite y lo descartaron, su registro ({{formatted}}) todavía en {{org}} ({{objects}}). Ejecutada en un terminal, la línea de abajo lista cada registro que creó en {{org}} desde el día en que empezó el seed, el suyo entre ellos, y no borra nada; la misma línea sin --dry-run borra lo que contó.",
       "dropped_other": "Lo que creó este seed ya no se conserva: el {{date}}, las ejecuciones conservadas en este equipo superaron su límite y lo descartaron, {{formatted}} registros todavía en {{org}} ({{objects}}). Ejecutada en un terminal, la línea de abajo lista cada registro que creó en {{org}} desde el día en que empezó el seed, los suyos entre ellos, y no borra nada; la misma línea sin --dry-run borra lo que contó.",
       "droppedWays": "O rebobine la org a un punto de control tomado antes, en Puntos de control; o vacíe sus objetos en DataOps → Vaciado → Vaciar objetos, que elimina todos sus registros, no solo los de este seed.",
-      "historyTitle": "Seeds anteriores",
+      "historyTitle": "Historial",
       "historyNote": "Los seeds que conservó esta extensión, los más recientes primero: los que aún tienen registros en su org se pueden quitar, también después de recargar la ventana. Un seed cuyos registros siguen en su org permanece en la lista hasta que se quita; de los seeds quitados, se listan los 20 más recientes.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro creado",
       "historyRun_other": "{{date}} · {{org}} · {{formatted}} registros creados",
@@ -2939,7 +2939,7 @@
     "templateGone": "Una plantilla que ya no está guardada",
     "stepConfigSeedTemplate": "Plantilla de Seed",
     "seedTemplateSelect": "Elija una plantilla",
-    "seedStepNote": "Cada ejecución añade los registros de la plantilla: retírelos desde las ejecuciones recientes de Seed. Un pipeline nunca genera datos en una org de producción.",
+    "seedStepNote": "Cada ejecución añade los registros de la plantilla: retírelos desde el Historial de Seed. Un pipeline nunca genera datos en una org de producción.",
     "stepConfigMaskingTemplate": "Plantilla de enmascaramiento",
     "maskingTemplateSelect": "Elija una plantilla",
     "stepConfigMaskingObject": "Objeto",
@@ -3700,7 +3700,7 @@
       "saferCopies1620": "Copias entre orgs más seguras",
       "saferCopies1620Desc": "Sync escribe ahora primero los registros principales, nunca vuelve a copiar lo que copió una ejecución anterior y comprueba volumen, almacenamiento y correos del día antes de escribir. La clonación desde otra org de Seed funciona entre dos orgs cualesquiera y oculta los correos y teléfonos reales. Toda ejecución que escribe aparece en Live Operations con un botón de detener, los respaldos de DataOps se pueden eliminar, y con teclado y lector de pantalla se puede seguir cada flujo.",
       "takeBack1630": "Toda ejecución se puede deshacer",
-      "takeBack1630Desc": "Lo que crean Subir CSV y Clonar desde Org aparece en Seeds anteriores y se puede eliminar, y una ejecución cuya ventana se cerró durante un trabajo Bulk sigue eliminando los registros de ese trabajo. Sync establece ahora las búsquedas entre objetos que se apuntan entre sí, su eliminación puede barrer lo que creó la automatización del destino, y cada página se carga más ligera.",
+      "takeBack1630Desc": "Lo que crean Subir CSV y Clonar desde Org aparece en el Historial de Seed y se puede eliminar, y una ejecución cuya ventana se cerró durante un trabajo Bulk sigue eliminando los registros de ese trabajo. Sync establece ahora las búsquedas entre objetos que se apuntan entre sí, su eliminación puede barrer lo que creó la automatización del destino, y cada página se carga más ligera.",
       "undoOverwrites1640": "Las actualizaciones se pueden deshacer",
       "undoOverwrites1640Desc": "Lo que una actualización de Sync sobrescribe en el destino se guarda primero, y al eliminar la ejecución los registros recuperan sus valores anteriores. Una ejecución de Sync desde la línea de comandos se puede eliminar aunque se haya interrumpido, y cada página se abre por debajo de 900 kB.",
       "beforeWrites1650": "Avisado antes de escribir",
@@ -4066,14 +4066,14 @@
       "step2": "Pegue un ID de registro o una consulta en la pestaña SOQL, o elija ALL para copiar toda la org, y haga clic en Descubrir grafo.",
       "step3": "Cuando termine el descubrimiento, haga clic en Continuar a la revisión.",
       "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
-      "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Ejecuciones recientes, los borra."
+      "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Historial, los borra."
     },
     "seed": {
       "step1": "En Seed rápido desde plantilla, pulse Usar esta en la plantilla Kit inicial de CRM, marcada Empiece aquí.",
       "step2": "Elija la org en Seleccionar org de destino y luego revise las cantidades en Cantidad de registros.",
       "step3": "Pulse Iniciar Seed y siga el progreso de cada objeto hasta que aparezcan los resultados.",
       "step4": "En los resultados, pulse Abrir el primer registro creado (Account) en su org para ver los datos.",
-      "tip": "No se escribe nada antes de Iniciar Seed; después, Quitar lo que creó esta ejecución, en los resultados o en Seeds anteriores, deshace el seed."
+      "tip": "No se escribe nada antes de Iniciar Seed; después, Quitar lo que creó esta ejecución, en los resultados o en Historial, deshace el seed."
     },
     "checkpoint": {
       "step1": "Elija un sandbox, una scratch org o una org Developer Edition en la lista de orgs de arriba.",
@@ -4475,7 +4475,7 @@
       "step5": "Ejecute hacia su sandbox tras la revisión, o sin ella con Clonar directamente — los IDs se reasignan"
     },
     "history": {
-      "title": "Ejecuciones recientes",
+      "title": "Historial",
       "olderTitle": "Ejecuciones anteriores",
       "olderHint": "Ejecuciones que ya no aparecen arriba y cuyos registros aún se pueden eliminar.",
       "olderRecords_one": "{{formatted}} registro por eliminar de {{org}}",
@@ -4684,7 +4684,7 @@
     "aborted": "DETENCIÓN SOLICITADA",
     "stopping": "DETENIENDO...",
     "stoppingNote": "Detención solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
-    "stopUnanswered": "La ejecución aún no ha respondido a la detención. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Ejecuciones recientes» en cuanto la ejecución responda.",
+    "stopUnanswered": "La ejecución aún no ha respondido a la detención. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Historial» en cuanto la ejecución responda.",
     "backToStart": "Volver al inicio",
     "stopped": "DETENIDO",
     "done": "Hecho",
@@ -4875,7 +4875,7 @@
       "saveHint": "La plantilla conserva el ID de registro o la consulta de la ejecución, su profundidad, límites y opciones, los objetos que deja fuera, las decisiones tomadas sobre sus discrepancias, su anonimización campo por campo, su copia de archivos (nunca la aceptación) y la org de destino. Aplíquela desde la pestaña Plantilla o expórtela a un archivo.",
       "nameRequired": "Ponga nombre a la plantilla para guardarla.",
       "saved": "Guardada como «{{name}}». Aparece en Sus plantillas, en la pestaña Plantilla.",
-      "wholeOrg": "Una clonación de toda la org no se guarda como plantilla, que guarda una clonación desde un registro o una consulta. Una vez ejecutada, Ejecuciones recientes en la página Forge → Reutilizar la configuración vuelve a poner sus ajustes en el formulario."
+      "wholeOrg": "Una clonación de toda la org no se guarda como plantilla, que guarda una clonación desde un registro o una consulta. Una vez ejecutada, Historial en la página Forge → Reutilizar la configuración vuelve a poner sus ajustes en el formulario."
     },
     "idMapping": {
       "title": "Correspondencia de Ids",
@@ -7962,7 +7962,7 @@
     },
     "resumeUnavailable": {
       "explanation": "Esta ejecución no puede retomarse donde se detuvo: se está retomando, ya se retomó o su ejecución terminó, ya no está en el historial, su diario falta o no dice cómo se configuró, o se eliminaron sus registros. No se escribió nada.",
-      "action": "Si ya se está retomando, espere a que termine esa ejecución. Si no, en Ejecuciones recientes, elimine los registros que creó esta ejecución, luego Reutilizar la configuración y vuelva a ejecutar la clonación: ejecutada de nuevo sin la eliminación, la clonación escribe esos registros por segunda vez."
+      "action": "Si ya se está retomando, espere a que termine esa ejecución. Si no, en Historial, elimine los registros que creó esta ejecución, luego Reutilizar la configuración y vuelva a ejecutar la clonación: ejecutada de nuevo sin la eliminación, la clonación escribe esos registros por segunda vez."
     },
     "resumeTargetChanged": {
       "explanation": "La org en la que escribió esta ejecución ya no está registrada en SandForge, o ya no es la que era — actualizada o sustituida desde entonces. No se escribió nada.",
@@ -7982,7 +7982,7 @@
     },
     "runNotInHistory": {
       "explanation": "Esta ejecución ya no está en el historial de Forge, que guarda las últimas: lo que escribió ya no se conoce aquí. No se leyó ni se escribió nada.",
-      "action": "Mire en Ejecuciones anteriores, bajo Ejecuciones recientes: una ejecución cuyos registros aún se pueden eliminar aparece allí. Si no, un punto de control tomado antes de la ejecución devuelve la org atrás (Puntos de control → Retroceder…), y DataOps → Vaciado → Vaciar objetos vacía sus objetos, todos sus registros."
+      "action": "Mire en Ejecuciones anteriores, en el Historial: una ejecución cuyos registros aún se pueden eliminar aparece allí. Si no, un punto de control tomado antes de la ejecución devuelve la org atrás (Puntos de control → Retroceder…), y DataOps → Vaciado → Vaciar objetos vacía sus objetos, todos sus registros."
     },
     "removalRunning": {
       "explanation": "Ya hay en curso una eliminación de esta ejecución, desde esta página u otra: una segunda preguntaría, y eliminaría, dos veces. No se eliminó nada más.",

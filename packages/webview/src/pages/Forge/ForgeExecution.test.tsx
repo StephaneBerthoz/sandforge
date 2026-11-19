@@ -557,7 +557,7 @@ describe('ForgeExecution', () => {
   describe('an abort the run does not answer', () => {
     /** What the screen says once the wait for the answer is over. */
     const UNANSWERED =
-      'The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in Recent runs once the run answers.';
+      'The run has not answered the stop yet. It may still be finishing a step: what it writes stays in the target org, and shows in History once the run answers.';
 
     beforeEach(() => {
       vi.useFakeTimers();

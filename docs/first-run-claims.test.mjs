@@ -260,7 +260,7 @@ test('the FAQ says how to undo a run, module by module, as the code allows', () 
   assert.ok(row(body, 'Frozen Dataset').includes(`**${labels.frozen}**`));
   assert.ok(row(body, 'Seed: a template').includes(`**${labels.seed}**`));
   for (const way of ['CSV Upload', labels.seedCopy]) {
-    assert.ok(row(body, way).includes(`**${labels.seed}**`), `${way}: Earlier seeds`);
+    assert.ok(row(body, way).includes(`**${labels.seed}**`), `${way}: Seed's History`);
     assert.ok(row(body, way).includes(`**${labels.seedResults}**`), `${way}: its results`);
     assert.doesNotMatch(row(body, way), /Not removable/);
   }

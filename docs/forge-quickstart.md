@@ -13,7 +13,7 @@ Forge needs two orgs: one that holds the records, and one to fill. With a single
 3. When discovery ends, click Continue to Review.
 4. Click Execute Forge, then read the Inserted card once the run ends.
 
-**Tip:** Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them.
+**Tip:** Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in History, deletes them.
 
 <!-- how-to:end -->
 
@@ -112,7 +112,7 @@ What the path skips, and what still guards it, is in [the reference](forge-refer
 
 **Simulate**, beside **Execute Forge** on the Review screen, sends the run as **Execute Forge** would, asking for a simulation. It reads what the real run reads and takes every record through the write stage the real run takes it through — the records held back for want of their parent or for a record type the user the run writes as may not use, the fields the target does not take, the record types and picklist values of the target, the emails and phone numbers neutralized, anonymization, the decisions taken on its gaps — with a writer that writes nothing: no insert, no update, no file. Its counts are what the real run would insert, link, hold back and fail before any write.
 
-It puts no question to you: nothing fires in the target, and nothing is written to hold back. A production target is refused all the same. A simulation is kept neither in **Recent runs** nor in the audit trail, which record writes. Its results say it was a simulation and wrote nothing, count the records that **Would be inserted**, and go back to Review with **Back to Review**.
+It puts no question to you: nothing fires in the target, and nothing is written to hold back. A production target is refused all the same. A simulation is kept neither in **History** nor in the audit trail, which record writes. Its results say it was a simulation and wrote nothing, count the records that **Would be inserted**, and go back to Review with **Back to Review**.
 
 What the target would refuse or change goes to Review as gaps: a picklist value, a field only the target requires, a text or a number too long for its field, a record type the target lacks, a currency it does not hold active, a unique value it already holds. [The reference](forge-reference.md#simulate-a-run) lists what each says and the decisions each takes.
 
@@ -126,7 +126,7 @@ Up to 200 rows, every one is rehearsed; past that, one row per object, record ty
 
 ## Remove what a run created
 
-The Forge page lists your recent runs under **Recent runs**. A run that created records offers **Remove the records this run created**: it deletes from the org the run wrote to the records that run created, and nothing else, children before their parents, into the recycle bin. A record the run linked to because the target already held it is never taken, and a record changed since the run is kept unless you tick **Also remove the records changed since the run, and what was added to them since**.
+The Forge page lists your recent runs under **History**. A run that created records offers **Remove the records this run created**: it deletes from the org the run wrote to the records that run created, and nothing else, children before their parents, into the recycle bin. A record the run linked to because the target already held it is never taken, and a record changed since the run is kept unless you tick **Also remove the records changed since the run, and what was added to them since**.
 
 You type the org's name to go on, and Production Guard refuses a production org. A run past the last twenty whose records are still in the org is listed under **Older runs**, with the same removal. [The reference](forge-reference.md#remove-what-a-run-created) says what a removal takes, keeps and reports, and how **Sweep first** takes back what the target's automation created for the run. [The FAQ](faq.md#remove-this-run-take-back-what-the-automation-made-or-rewind-to-before-it) says when each is enough, and when only a rewind to a checkpoint is.
 
@@ -200,7 +200,7 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
   --objects Case,Contact,Account
 ```
 
-The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)), and a run of the clone whose `--json` summary you kept can have them removed with `--remove` ([reference](forge-reference.md#the-command-line)).
+The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **History** ([above](#remove-what-a-run-created)), and a run of the clone whose `--json` summary you kept can have them removed with `--remove` ([reference](forge-reference.md#the-command-line)).
 
 `--query "SELECT Id FROM Account WHERE Industry = 'Energy' LIMIT 50"`, in place of `--record`, clones each record a query chooses with what it reaches, a record they share written once, and `--roots-plan <file>` keeps those its dry run chose for the run to write. `--object <ApiName>`, repeated, clones whole tables in place of a record, each `--where <condition>` filtering the `--object` before it. A lookup at a table it does not write keeps the ids the target holds, and goes empty, said, for those it does not ([how](forge-reference.md#the-command-line)):
 

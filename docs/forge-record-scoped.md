@@ -527,7 +527,7 @@ part registered linked to and never written again, the lookups and statuses
 the earlier parts still owed given with this part's own, and none of what
 they wrote counted as this part's. The extension keeps the journal of every
 run that writes, and of one that stopped offers it to be taken up where it
-stopped from the run's results, **Recent runs** and Live Operations
+stopped from the run's results, **History** and Live Operations
 (`forge:resume-run`): refused when the org it wrote to is no longer that org,
 or when the run would be set up otherwise; a journal a closed window left is
 listed among the recent runs, interrupted. It drops a journal that ended once

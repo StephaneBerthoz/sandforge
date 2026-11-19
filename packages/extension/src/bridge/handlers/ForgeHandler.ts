@@ -638,7 +638,7 @@ const RESUME_UNAVAILABLE = 'RESUME_UNAVAILABLE';
  * then run it again, which without the removal writes those records twice.
  */
 const RERUN_INSTEAD =
-  'remove the records it created (Forge → Recent runs), then run the clone again. Nothing was ' +
+  'remove the records it created (Forge → History), then run the clone again. Nothing was ' +
   'read or written.';
 /** Why a resume was refused: the org the run wrote to is not the one it was. */
 const RESUME_TARGET_CHANGED = 'RESUME_TARGET_CHANGED';

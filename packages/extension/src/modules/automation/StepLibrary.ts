@@ -20,7 +20,7 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     type: 'seed',
     label: 'Seed Data',
     description:
-      'Seed an org with a template saved on the Seed page or shipped with SandForge, never a production org; its records are taken back from Seed’s Recent runs',
+      'Seed an org with a template saved on the Seed page or shipped with SandForge, never a production org; its records are taken back from Seed’s History',
     category: 'data',
     icon: 'database',
     // A template with an AI rule is refused: nobody watches a pipeline run.

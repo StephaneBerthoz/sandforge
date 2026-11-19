@@ -1126,7 +1126,7 @@
       "dropped_one": "Ce que ce seed a créé n'est plus conservé : le {{date}}, les exécutions conservées sur cette machine ont dépassé leur limite et l'ont écarté, son enregistrement ({{formatted}}) toujours dans {{org}} ({{objects}}). Lancée dans un terminal, la ligne ci-dessous liste chaque enregistrement que vous avez créé dans {{org}} depuis le jour où le seed a commencé, le sien parmi eux, et ne supprime rien ; la même ligne sans --dry-run supprime ce qu'elle a compté.",
       "dropped_other": "Ce que ce seed a créé n'est plus conservé : le {{date}}, les exécutions conservées sur cette machine ont dépassé leur limite et l'ont écarté, {{formatted}} enregistrements toujours dans {{org}} ({{objects}}). Lancée dans un terminal, la ligne ci-dessous liste chaque enregistrement que vous avez créé dans {{org}} depuis le jour où le seed a commencé, les siens parmi eux, et ne supprime rien ; la même ligne sans --dry-run supprime ce qu'elle a compté.",
       "droppedWays": "Ou rembobinez l'org à un point de contrôle pris avant lui, dans Points de contrôle ; ou videz ses objets dans DataOps → Vidage → Vider des objets, qui supprime tous leurs enregistrements, pas seulement ceux de ce seed.",
-      "historyTitle": "Seeds précédents",
+      "historyTitle": "Historique",
       "historyNote": "Les seeds que l'extension a conservés, les plus récents d'abord : ceux dont les enregistrements sont encore dans leur org peuvent être retirés, y compris après un rechargement de la fenêtre. Un seed dont les enregistrements sont encore dans son org reste listé jusqu'à son retrait ; des seeds retirés, les 20 plus récents sont listés.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} enregistrement créé",
       "historyRun_other": "{{date}} · {{org}} · {{formatted}} enregistrements créés",
@@ -2939,7 +2939,7 @@
     "templateGone": "Un modèle qui n'est plus enregistré",
     "stepConfigSeedTemplate": "Modèle Seed",
     "seedTemplateSelect": "Choisissez un modèle",
-    "seedStepNote": "Chaque exécution ajoute les enregistrements du modèle : reprenez-les depuis les exécutions récentes de Seed. Un pipeline ne génère jamais de données dans une org de production.",
+    "seedStepNote": "Chaque exécution ajoute les enregistrements du modèle : reprenez-les depuis l'Historique de Seed. Un pipeline ne génère jamais de données dans une org de production.",
     "stepConfigMaskingTemplate": "Modèle de masquage",
     "maskingTemplateSelect": "Choisissez un modèle",
     "stepConfigMaskingObject": "Objet",
@@ -3700,7 +3700,7 @@
       "saferCopies1620": "Des copies entre orgs plus sûres",
       "saferCopies1620Desc": "Sync écrit désormais les parents d'abord, ne recopie jamais ce qu'un run précédent a copié, et vérifie volume, stockage et e-mails du jour avant d'écrire. Le Clone from Org de Seed marche entre deux orgs quelconques et masque les vrais e-mails et téléphones. Tout run qui écrit apparaît dans Live Operations avec un Stop, les sauvegardes DataOps se suppriment, et le clavier comme les lecteurs d'écran suivent chaque parcours.",
       "takeBack1630": "Tout run peut être retiré",
-      "takeBack1630Desc": "Ce que créent l'Import CSV et Cloner depuis une org figure dans les Seeds précédents et peut être retiré, et un run dont la fenêtre s'est fermée pendant un job Bulk retire encore les enregistrements de ce job. Sync renseigne désormais les références entre objets qui pointent l'un vers l'autre, sa suppression peut balayer ce que l'automatisation de la cible a créé, et chaque page se charge plus légère.",
+      "takeBack1630Desc": "Ce que créent l'Import CSV et Cloner depuis une org figure dans l'Historique de Seed et peut être retiré, et un run dont la fenêtre s'est fermée pendant un job Bulk retire encore les enregistrements de ce job. Sync renseigne désormais les références entre objets qui pointent l'un vers l'autre, sa suppression peut balayer ce que l'automatisation de la cible a créé, et chaque page se charge plus légère.",
       "undoOverwrites1640": "Les mises à jour peuvent être annulées",
       "undoOverwrites1640Desc": "Ce qu'une mise à jour Sync écrase dans la cible est d'abord conservé, et la suppression du run rend aux enregistrements leurs valeurs d'avant. Un run Sync lancé en ligne de commande peut être retiré même s'il a été interrompu, et chaque page s'ouvre sous 900 ko.",
       "beforeWrites1650": "Prévenu avant d'écrire",
@@ -4066,14 +4066,14 @@
       "step2": "Collez un ID d'enregistrement ou une requête dans l'onglet SOQL, ou choisissez ALL pour copier toute l'org, puis cliquez sur Découvrir le graphe.",
       "step3": "Une fois la découverte terminée, cliquez sur Passer à la revue.",
       "step4": "Cliquez sur Exécuter le Forge, puis lisez la carte Insérés une fois l'exécution terminée.",
-      "tip": "Simuler n'écrit rien ; Répéter dans la cible écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans Exécutions récentes, les efface."
+      "tip": "Simuler n'écrit rien ; Répéter dans la cible écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans l'Historique, les efface."
     },
     "seed": {
       "step1": "Sous Seed rapide depuis un modèle, cliquez sur Utiliser dans la carte Kit de démarrage CRM, marquée Commencez ici.",
       "step2": "Choisissez l'org sous Choisir l'org cible, puis vérifiez les volumes sous Nombre d'enregistrements.",
       "step3": "Cliquez sur Lancer le seed et suivez la progression de chaque objet jusqu'aux résultats.",
       "step4": "Dans les résultats, cliquez sur Ouvrir le premier enregistrement créé (Account) dans votre org pour voir les données.",
-      "tip": "Rien n'est écrit avant Lancer le seed ; ensuite, Retirer ce que cette exécution a créé, dans les résultats ou sous Seeds précédents, défait le seed."
+      "tip": "Rien n'est écrit avant Lancer le seed ; ensuite, Retirer ce que cette exécution a créé, dans les résultats ou dans l'Historique, défait le seed."
     },
     "checkpoint": {
       "step1": "Choisissez une sandbox, une scratch org ou une org Developer Edition dans la liste des orgs, en haut.",
@@ -4475,7 +4475,7 @@
       "step5": "Exécutez vers votre sandbox après la revue, ou sans elle avec Cloner directement — les IDs sont réattribués"
     },
     "history": {
-      "title": "Exécutions récentes",
+      "title": "Historique",
       "olderTitle": "Exécutions plus anciennes",
       "olderHint": "Exécutions qui ne figurent plus ci-dessus et dont les enregistrements peuvent encore être supprimés.",
       "olderRecords_one": "{{formatted}} enregistrement à supprimer de {{org}}",
@@ -4684,7 +4684,7 @@
     "aborted": "ARRÊT DEMANDÉ",
     "stopping": "ARRÊT EN COURS...",
     "stoppingNote": "Arrêt demandé : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
-    "stopUnanswered": "L'exécution n'a pas encore répondu à la demande d'arrêt. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Exécutions récentes » dès qu'elle répond.",
+    "stopUnanswered": "L'exécution n'a pas encore répondu à la demande d'arrêt. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Historique » dès qu'elle répond.",
     "backToStart": "Revenir au début",
     "stopped": "ARRÊTÉ",
     "done": "Terminés",
@@ -4875,7 +4875,7 @@
       "saveHint": "Le modèle garde l'ID d'enregistrement ou la requête de l'exécution, sa profondeur, ses plafonds et ses options, les objets qu'elle laisse de côté, les décisions prises sur ses écarts, son anonymisation champ par champ, sa copie des fichiers (jamais l'acceptation) et l'org cible. Appliquez-le depuis l'onglet Modèle, ou exportez-le dans un fichier.",
       "nameRequired": "Nommez le modèle pour l'enregistrer.",
       "saved": "Enregistré sous « {{name}} ». Il figure dans Vos modèles, dans l'onglet Modèle.",
-      "wholeOrg": "Un clonage de toute l'org n'est pas gardé comme modèle, qui garde un clonage depuis un enregistrement ou une requête. Une fois qu'il a tourné, Exécutions récentes sur la page Forge → Réutiliser la configuration remet ses réglages dans le formulaire."
+      "wholeOrg": "Un clonage de toute l'org n'est pas gardé comme modèle, qui garde un clonage depuis un enregistrement ou une requête. Une fois qu'il a tourné, Historique sur la page Forge → Réutiliser la configuration remet ses réglages dans le formulaire."
     },
     "idMapping": {
       "title": "Correspondance des Ids",
@@ -7962,7 +7962,7 @@
     },
     "resumeUnavailable": {
       "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle est en cours de reprise, a déjà été reprise ou son exécution s'est terminée, elle n'est plus dans l'historique, son journal manque ou ne dit pas comment elle a été configurée, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
-      "action": "Déjà en cours de reprise : attendez la fin de cette exécution. Sinon, dans Exécutions récentes, supprimez les enregistrements créés par cette exécution, puis Réutiliser la configuration et relancez le clonage : relancé sans cette suppression, le clonage écrit ces enregistrements une seconde fois."
+      "action": "Déjà en cours de reprise : attendez la fin de cette exécution. Sinon, dans l'Historique, supprimez les enregistrements créés par cette exécution, puis Réutiliser la configuration et relancez le clonage : relancé sans cette suppression, le clonage écrit ces enregistrements une seconde fois."
     },
     "resumeTargetChanged": {
       "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge, ou n'est plus celle qu'elle était — rafraîchie ou remplacée depuis. Rien n'a été écrit.",
@@ -7982,7 +7982,7 @@
     },
     "runNotInHistory": {
       "explanation": "Cette exécution n'est plus dans l'historique de Forge, qui garde les dernières : ce qu'elle a écrit n'est plus connu ici. Rien n'a été lu ni écrit.",
-      "action": "Regardez sous Exécutions plus anciennes, après Exécutions récentes : une exécution dont les enregistrements peuvent encore être supprimés y figure. Sinon, un point de contrôle pris avant l'exécution ramène l'org en arrière (Points de contrôle → Revenir à ce point…), et DataOps → Vidage → Vider des objets vide ses objets, tous leurs enregistrements."
+      "action": "Regardez sous Exécutions plus anciennes, dans l'Historique : une exécution dont les enregistrements peuvent encore être supprimés y figure. Sinon, un point de contrôle pris avant l'exécution ramène l'org en arrière (Points de contrôle → Revenir à ce point…), et DataOps → Vidage → Vider des objets vide ses objets, tous leurs enregistrements."
     },
     "removalRunning": {
       "explanation": "Une suppression de cette exécution est déjà en cours, depuis cette page ou une autre : une seconde demanderait, et supprimerait, deux fois. Rien de plus n'a été supprimé.",

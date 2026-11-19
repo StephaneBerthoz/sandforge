@@ -231,6 +231,47 @@ describe('a language names one thing with one word', () => {
     expect(offenders('fr', /\bassistants?\b/i).length).toBeGreaterThan(5);
   });
 
+  /* Sync's tab and Automation's said History, while Forge headed its list of
+     runs "Recent runs" and Seed "Earlier seeds": one list under three names,
+     and a pipeline step sent the reader to "Seed's Recent runs", a title no
+     page showed. */
+  it('names every list of runs History, and sends the reader to it by that name', () => {
+    const pointsToIt = [
+      'automation.seedStepNote',
+      'onboarding.whatsNew.takeBack1630Desc',
+      'howTo.forge.tip',
+      'howTo.seed.tip',
+      'forgeRun.stopUnanswered',
+      'forgeRun.savedTemplate.wholeOrg',
+      'errors.resumeUnavailable.action',
+      'errors.runNotInHistory.action',
+    ];
+    const formerTitles: Record<string, string[]> = {
+      en: ['Recent runs', 'Earlier seeds'],
+      fr: ['Exécutions récentes', 'Seeds précédents'],
+      de: ['Letzte Durchläufe', 'Frühere Seeds'],
+      es: ['Ejecuciones recientes', 'Seeds anteriores'],
+      'pt-BR': ['Execuções recentes', 'Seeds anteriores'],
+      ja: ['「最近の実行」', '**最近の実行**', '以前のシード'],
+    };
+    for (const locale of ['en', ...NON_EN]) {
+      const catalogue = load(locale);
+      const history = lookup(catalogue, 'sync.tabs.history') as string;
+      expect(lookup(catalogue, 'automation.history'), locale).toBe(history);
+      expect(lookup(catalogue, 'forge.history.title'), locale).toBe(history);
+      expect(lookup(catalogue, 'seed.removal.historyTitle'), locale).toBe(history);
+      for (const key of pointsToIt) {
+        expect(lookup(catalogue, key), `${locale} ${key}`).toContain(history);
+      }
+      const stale = [...everySurface(locale)]
+        .filter(([, value]) => formerTitles[locale].some((title) => value.includes(title)))
+        .map(([key]) => key);
+      expect(stale, locale).toEqual([]);
+    }
+    // Positive control: the walk reads the walkthrough, where the Forge step names the list.
+    expect(walkthroughOf('en').get('forge-clone.md:9')).toContain('**');
+  });
+
   /* The panels were masculine, and the Marketplace listing and the walkthrough
      a newcomer reads first said "una sandbox", "tu primera sandbox", "Las
      sandboxes". */
