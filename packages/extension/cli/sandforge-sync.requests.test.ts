@@ -436,9 +436,9 @@ describe('sandforge-sync --json, its API requests', () => {
     // Fifteen calls of ten accounts, without their parent, then fifteen
     // updates that give 149 of them the copy of theirs, priced nowhere.
     expect(real.targetRequests.filter((url) => url === '/composite/sobjects')).toHaveLength(15);
-    expect(
-      real.targetRequests.filter((url) => url === '/composite/sobjects/update'),
-    ).toHaveLength(15);
+    expect(real.targetRequests.filter((url) => url === '/composite/sobjects/update')).toHaveLength(
+      15,
+    );
     expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
     expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
   });

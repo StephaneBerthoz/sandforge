@@ -1626,13 +1626,7 @@ export class SyncOpsHandler implements DomainHandler {
         readSourceIds: readers.readSourceIds,
         countSource: readers.countSource,
         countPersonAccounts: readers.countPersonAccounts,
-        writeGate: this.writeGateFor(
-          config,
-          readers,
-          'ask',
-          undefined,
-          checkpoint?.gate,
-        ),
+        writeGate: this.writeGateFor(config, readers, 'ask', undefined, checkpoint?.gate),
         // What reads back the record types the target gave, as the run reads
         // them: never called by a simulation, its requests counted as the
         // run's gate counts them.

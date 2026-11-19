@@ -702,7 +702,10 @@ describe('of a run both ways, the whole read of the target it compares with', ()
 
     const unread = await measureSyncWrite(
       accounts,
-      measures({ countTarget, targetFields: async () => Promise.reject(new Error('INVALID_TYPE')) }),
+      measures({
+        countTarget,
+        targetFields: async () => Promise.reject(new Error('INVALID_TYPE')),
+      }),
     );
     expect(unread.api.estimate).toBe(narrow.api.estimate);
   });
