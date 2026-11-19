@@ -1923,7 +1923,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           break;
         }
         const part = records.slice(i, i + this.batchSize);
-        const results = await updateEach(update, objectApiName, part);
+        const results = await this.updateSendingLocksAgain(
+          update,
+          objectApiName,
+          part,
+          'lookup update(s)',
+        );
         part.forEach((patch, index) => {
           const outcome = results[index];
           if (outcome?.success) {
@@ -2636,6 +2641,51 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     };
     logger.info(`[autopilot] ${objectApiName}: ${lockedRowsLine('record(s)', again) ?? ''}`);
     return [...again.outcomes, ...outcomes.slice(payload.length)];
+  }
+
+  /**
+   * Update records of the run's own — a lookup filled by the second pass, a
+   * status given back — then send again, as {@link insertSendingLocksAgain}
+   * does, those the target refused because it could not lock a record their
+   * write needed. One outcome per record, in order; a call that throws is
+   * every record of it refused with what it threw, and none sent again.
+   *
+   * Sent once, a record refused so kept its lookup empty or stayed a draft,
+   * and the lock's hint said to run again: an Autopilot run has no removal,
+   * and run again whole it wrote every record a second time to give one
+   * lookup back.
+   *
+   * @param what - What the records sent are, for the log: `lookup update(s)`.
+   */
+  private async updateSendingLocksAgain(
+    update: UpdateFn,
+    objectApiName: string,
+    records: Record<string, unknown>[],
+    what: string,
+  ): Promise<SaveOutcome[]> {
+    // A call that threw answers under no code, and is never taken for a lock.
+    const outcomes = await updateEach(update, objectApiName, records);
+    const again = await sendLockedRowsAgain<SaveOutcome>({
+      outcomes: outcomes.slice(0, records.length),
+      locked: (outcome) =>
+        !outcome.success && refusedForALock(outcome.errors, outcome.errorDetails),
+      written: (outcome) => outcome.success,
+      send: (at) =>
+        updateEach(
+          update,
+          objectApiName,
+          at.map((i) => records[i]),
+        ),
+      note: stillLocked,
+      wait: async (ms) => {
+        await this.wait(ms);
+        await this.checkPause();
+      },
+      stopped: () => this.stopped(),
+    });
+    if (again.refused === 0) return outcomes;
+    logger.info(`[autopilot] ${objectApiName}: ${lockedRowsLine(what, again) ?? ''}`);
+    return [...again.outcomes, ...outcomes.slice(records.length)];
   }
 
   /**
@@ -3508,10 +3558,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           break;
         }
         const part = entries.slice(i, i + this.batchSize);
-        const results = await updateEach(
+        const results = await this.updateSendingLocksAgain(
           update,
           objectApiName,
           part.map((entry) => ({ Id: entry.id, Status: entry.status })),
+          'status update(s)',
         );
         part.forEach((_, index) => {
           const outcome = results[index];

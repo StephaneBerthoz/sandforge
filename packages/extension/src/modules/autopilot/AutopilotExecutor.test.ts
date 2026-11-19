@@ -1730,6 +1730,42 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
       expect(result.statuses?.['Order']?.leftDraft).toBe(1);
     });
 
+    it('sends again a status the target refused for a record it could not lock, and gives it back', async () => {
+      // Sent once: the order stayed a draft, the lock's hint saying to run
+      // again a run that has no removal.
+      const queryTarget = vi.fn<SoqlQuery>(async (soql) =>
+        soql === 'SELECT ApiName, StatusCode FROM OrderStatus' ? orderStatuses : [],
+      );
+      const update = vi
+        .fn<NonNullable<AutopilotExecutorDeps['update']>>()
+        .mockResolvedValueOnce([
+          refused('UNABLE_TO_LOCK_ROW', 'unable to obtain exclusive access to this record'),
+        ])
+        .mockImplementation(async (_name, records) =>
+          written(...records.map((r) => String(r['Id']))),
+        );
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        insert: insertAs({ Order: '801', OrderItem: '802' }),
+        remapper: new RecordIdRemapper(),
+        queryTarget,
+        update,
+        batchSize: 200,
+        wait: async () => {},
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Order', 'OrderItem'),
+        [itemEdge],
+        [],
+        countsOf(rows),
+      );
+
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(update.mock.calls[1]).toEqual(['Order', [{ Id: '8010', Status: 'ST004' }]]);
+      expect(result.statuses).toEqual({ Order: { applied: 1, refusals: [] } });
+    });
+
     it('gives no status back while the run is paused, and gives it back on resume', async () => {
       // Paused as the last wave went in: the orders were activated all the
       // same, the target's automation on them run, the run listed paused.
@@ -2279,6 +2315,83 @@ describe('AutopilotExecutor — the second pass', () => {
       refusals: [expect.objectContaining({ fields: ['ParentId'], count: 1 })],
       leftEmpty: 1,
     });
+    // A call that threw is not a record's refusal, whatever it said: sent
+    // again, it could write a second time what the first call wrote.
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends again a lookup update the target refused for a record it could not lock, and fills it', async () => {
+    // Sent once: the child stood without its parent, said "left empty",
+    // where the insert of the same record would have gone again.
+    const update = vi
+      .fn<UpdateFn>()
+      .mockResolvedValueOnce([
+        refused('UNABLE_TO_LOCK_ROW', 'unable to obtain exclusive access to this record'),
+      ])
+      .mockImplementation(async (_name, records) =>
+        written(...records.map((record) => String(record['Id']))),
+      );
+    const waits: number[] = [];
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+      wait: async (ms) => {
+        waits.push(ms);
+      },
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[1]).toEqual(['Account', [{ Id: '001T0', ParentId: '001T1' }]]);
+    expect(waits).toHaveLength(1);
+    expect(result.lookups).toEqual({ Account: { filled: 1, refusals: [] } });
+  });
+
+  it('says how many times it went a lookup update the lock still held after its third send', async () => {
+    const update = vi.fn<UpdateFn>(async () => [
+      refused('UNABLE_TO_LOCK_ROW', 'unable to obtain exclusive access to this record'),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+      wait: async () => {},
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(update).toHaveBeenCalledTimes(4);
+    expect(result.lookups?.['Account']).toMatchObject({
+      filled: 0,
+      refusals: [
+        expect.objectContaining({
+          statusCode: 'UNABLE_TO_LOCK_ROW',
+          fields: ['ParentId'],
+          count: 1,
+        }),
+      ],
+      leftEmpty: 1,
+    });
+    expect(result.lookups?.['Account']?.refusals[0].message).toContain(
+      'sent again 3 times, waiting longer each time: the target still could not lock a record ' +
+        'the write needed',
+    );
   });
 
   it('keeps what a wave’s second pass refused when a stop comes before the next wave', async () => {
