@@ -42,6 +42,21 @@ suite('SandForge in a real VS Code', () => {
     assert.deepEqual(missing, [], 'contributed commands the host never registered');
   });
 
+  test('the command that shows the side panel at startup is one VS Code knows', async () => {
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension);
+    await extension.activate();
+
+    // VS Code generates it from the activity bar's `sandforge` container; a
+    // renamed container would leave startup running a command that is not there.
+    const registered = new Set(await vscode.commands.getCommands(true));
+    assert.ok(
+      registered.has('workbench.view.extension.sandforge'),
+      'workbench.view.extension.sandforge is not registered',
+    );
+    await vscode.commands.executeCommand('workbench.view.extension.sandforge');
+  });
+
   test('the panel opens on the page a command names', async () => {
     const extension = vscode.extensions.getExtension(EXTENSION_ID);
     assert.ok(extension);
