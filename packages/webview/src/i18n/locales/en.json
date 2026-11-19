@@ -263,7 +263,6 @@
     "liveOps": {
       "title": "Live Operations",
       "noOperations": "No operations running",
-      "cancel": "Cancel",
       "resumeRun": "Resume",
       "partialHint": "Not everything went through: its results say what was left.",
       "resumeRunHint": "Take this clone up where it stopped",

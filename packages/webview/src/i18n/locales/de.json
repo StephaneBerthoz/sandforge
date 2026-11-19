@@ -263,7 +263,6 @@
     "liveOps": {
       "title": "Live-Operationen",
       "noOperations": "Keine laufenden Operationen",
-      "cancel": "Abbrechen",
       "resumeRun": "Fortsetzen",
       "partialHint": "Nicht alles wurde ausgeführt: Die Ergebnisse nennen, was offen blieb.",
       "resumeRunHint": "Diesen Klon dort fortsetzen, wo er stoppte",

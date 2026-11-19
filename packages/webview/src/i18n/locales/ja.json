@@ -249,7 +249,6 @@
     "liveOps": {
       "title": "ライブオペレーション",
       "noOperations": "実行中の操作はありません",
-      "cancel": "キャンセル",
       "resumeRun": "再開",
       "partialHint": "一部は完了していません。残った内容は結果で確認できます。",
       "resumeRunHint": "停止した箇所からこのクローンを再開します",

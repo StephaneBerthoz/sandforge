@@ -263,7 +263,6 @@
     "liveOps": {
       "title": "Operações ao vivo",
       "noOperations": "Nenhuma operação em execução",
-      "cancel": "Cancelar",
       "resumeRun": "Retomar",
       "partialHint": "Nem tudo foi concluído: os resultados mostram o que ficou pendente.",
       "resumeRunHint": "Retomar esta clonagem de onde parou",

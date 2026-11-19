@@ -280,7 +280,7 @@ const OperationRow: React.FC<{
               data-testid={`cancel-${operation.operationId}`}
             >
               <X className="w-3 h-3 mr-1" />
-              {t('monitor.liveOps.cancel', 'Cancel')}
+              {t('common.stopRun')}
             </Button>
           )}
         </div>

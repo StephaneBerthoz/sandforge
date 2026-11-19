@@ -156,6 +156,25 @@ describe('LiveOperationsPanel', () => {
     expect(onCancel).toHaveBeenCalledWith('op-1');
   });
 
+  it('names the stop of a run as the run screens do, beside Pause and Resume', () => {
+    // It read "Cancel", where every run screen's button says Stop the run.
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({ status: 'running', pausable: true }),
+          makeOperation({ operationId: 'op-2', status: 'paused', pausable: true }),
+        ]}
+        onCancel={vi.fn()}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('cancel-op-1').textContent).toBe('Stop the run');
+    expect(screen.getByTestId('cancel-op-2').textContent).toBe('Stop the run');
+    expect(screen.getByTestId('pause-op-1').textContent).toBe('Pause');
+    expect(screen.getByTestId('resume-op-2').textContent).toBe('Resume');
+  });
+
   it('does not show action buttons for completed operations', () => {
     render(
       <LiveOperationsPanel
