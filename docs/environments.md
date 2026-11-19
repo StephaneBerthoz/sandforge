@@ -906,7 +906,7 @@ case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): state serial 4, written 2026-
     Contact  003000000000003AAA 003000000000004AAA 003000000000005AAA 003000000000006AAA 003000000000007AAA 003000000000008AAA
 ```
 
-`output` names, of each resource the state holds, the records its last run created, by object, in the order they were written: those a test suite runs against. It reaches no org, and runs no script: it reads the state and what each run kept on this machine -- a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas, a replay's mapping in the store of checkpoints. `--org` finds the state as `state` does, by the alias it was applied by or by the Organization Id; two states under one alias -- an alias reused for a new scratch org -- are refused, both named, and the Organization Id says which.
+`output` names, of each resource the state holds, the records its last run created, by object, in the order they were written: those a test suite runs against. It reaches no org, and runs no script: it reads the state and what each run kept on this machine -- a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas, a replay's mapping in the store of checkpoints. `--org` finds the state as `state` does, by the alias it was applied by or by the Organization Id; two states under one alias -- an alias reused for a new scratch org -- are refused, both named, and the Organization Id says which. A sandbox refreshed since is the exception: the state kept of it before, on the same host under its former Id, is set aside and said, as the plan sets it aside, and the newer one is read.
 
 With `--json`, the answer alone goes to stdout, each resource under its name, its ids under their object, for a test script to read:
 
@@ -1579,12 +1579,13 @@ $ echo $?
 0
 ```
 
-`output` names what the apply created, for the testers' suite: the users set up, what the masking went through, and the records the replay created, read from its mapping in the store of checkpoints -- never the contacts it linked. The state of before the refresh is kept under the same alias, so `--org` names this one by its Organization Id:
+`output` names what the apply created, for the testers' suite: the users set up, what the masking went through, and the records the replay created, read from its mapping in the store of checkpoints -- never the contacts it linked. The state of before the refresh, kept under the same alias, is set aside and said, as the plan sets it aside:
 
 <!-- replay: then -->
 
 ```console
-$ sandforge env output --file ../uat/sandforge.yaml --org 00Dxx0000002AbCEAU
+$ sandforge env output --file ../uat/sandforge.yaml --org uat
+uat: the state of uat-after-refresh kept under 00Dxx0000001gPLEAY (serial 5, written 2026-10-25T09:03:00.000Z) is of this sandbox before its refresh, set aside: output reads the one kept under 00Dxx0000002AbCEAU
 uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU): state serial 7, written 2026-10-26T21:06:00.000Z
   testers  users, applied, run 1
     User  jane.qa@acme.com.uat 005000000000002AAA
@@ -1598,6 +1599,52 @@ uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU): state serial 7
   test-data  replay, applied, run 1
     Account  001000000000004AAA 001000000000005AAA
     Contact  003000000000006AAA 003000000000007AAA
+$ echo $?
+0
+```
+
+**A seed after the replay** is said, never refused: what it writes is added to the records the replay puts back from the checkpoint, never in their place, so data the checkpoint already holds gets more of its kind beside it. The plan says it on the seed's action, under `notes` with `--json`, whether the seed runs after the replay directly or through what it depends on; `--fail-on-drift` is not concerned. Here the testers want two demo accounts beside their own:
+
+```yaml
+resources:
+  demo-accounts:
+    kind: seed
+    dependsOn: [test-data] # after the replay: written beside what it puts back
+    objects:
+      - object: Account
+        count: 2
+        fields:
+          - { fieldApiName: Name, ruleType: static, config: { staticValue: Demo account } }
+```
+
+<!-- replay: then; the file seeds demo accounts after the replay -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat --fail-on-drift
+test-data: reading what the org holds of run 1
+checkpoint ck-20261026-210530-a1b2: comparing the whole org with it
+testers: dry run
+customers: dry run
+demo-accounts: dry run
+checkpoint: estimating what a take of the org costs
+plan of uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU)
+state: kept on this machine, serial 7
+  keep     testers  User 3 set up
+           applied, and the org holds its 3 user(s) as the last run left them
+  keep     customers  Contact 4 masked
+           applied, and its condition selects the 4 record(s) it masked, with the same rules, beside 2 the resources applied after it created since: masked again they would only be masked twice
+  keep     test-data  Contact 2 in the org; Account 2 in the org
+           applied, and the org holds its 4 record(s) as written
+  create   demo-accounts  Account 2 to write
+           not applied to this org yet
+           it runs after the replay test-data: what it writes is added to the records the replay puts back from the checkpoint, never in their place; leave it out of the file if the checkpoint already holds the data it would seed
+totals: 1 to create, 0 to replace, 0 to delete, 3 kept, 0 drifted, 0 blocked
+API requests: about 30, 14000 left
+data storage: about 0.01 MB, 5 MB left
+checkpoint once applied: 'uat-baseline', about 10 records, 20 API requests, 7 s, 0.01 MB on this machine
+the whole org against the checkpoint after the last apply (ck-20261026-210530-a1b2): nothing differs among the objects and fields it compares
+audits after the apply: deliverability, scheduled jobs, endpoints, about 4 to 7 API requests; then the handoff note
+warning: uat: listed by its My Domain
 $ echo $?
 0
 ```
@@ -1620,7 +1667,7 @@ SandForge changes none of what the audits find: Setup, `sf` or the project's dep
 
 ```console
 $ sandforge env audit --file ../uat/sandforge.yaml --org uat --fail-on-findings
-audit of uat (sandbox acme--uat, 00Dxx0000002AbCEAU), 2026-10-26T21:08:00Z, 7 API requests
+audit of uat (sandbox acme--uat, 00Dxx0000002AbCEAU), 2026-10-26T21:11:00Z, 7 API requests
 deliverability: closed — System email only or No access: what runs there emails nobody. Which of the two, no API says.
 scheduled jobs: 1 now, against the inventory saved on 2026-10-25 from 00Dxx0000001gPLEAY, this sandbox before its refresh
   gone     Nightly ERP sync (Scheduled Apex, 0 0 2 * * ?): scheduled before the refresh, not since

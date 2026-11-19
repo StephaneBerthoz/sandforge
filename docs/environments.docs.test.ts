@@ -697,6 +697,12 @@ const EVENTS: Readonly<Record<string, (replay: Replay) => void | Promise<void>>>
     vi.setSystemTime(REFRESHED_AT);
     Object.assign(replay, sandboxOf(replay.dir, REFRESHED_ORG_ID, true));
   },
+  // The resource the page shows, added after the replay, as it writes it.
+  'the file seeds demo accounts after the replay': (replay) => {
+    const added = fenced(section(DOC, '## After a sandbox refresh'), 'yaml')[1];
+    if (added === undefined) throw new Error('the refresh section shows no seed to add: re-point');
+    edit(replay, '\naudits:\n', `\n${added.replace(/^resources:\n/, '')}\n\naudits:\n`);
+  },
 };
 
 /** An account a test creates, as the colleague the sessions name. */
@@ -2510,6 +2516,25 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
     );
   });
 
+  it('says a seed after a replay is noted on its action, never refused, in the words the plan says it', () => {
+    const refresh = section(DOC, '## After a sandbox refresh');
+    const said = joined(PLAN);
+    // Positive control: the note is the plan's, on a seed alone, beside the others.
+    expect(PLAN).toContain('...seedAfterReplayNotes(input.resolved, resource),');
+    expect(PLAN).toContain("if (resource.kind !== 'seed') return [];");
+    expect(said).toContain('never in their place; leave it out of ');
+    expect(refresh).toContain(
+      'what it writes is added to the records the replay puts back from the checkpoint, never in their place',
+    );
+    // Said, never refused: nothing of it is a refusal, and the session ends 0.
+    expect(PLAN).toContain('Said, never refused');
+    expect(refresh).toContain('**A seed after the replay** is said, never refused');
+    expect(refresh).toContain('under `notes` with `--json`');
+    expect(refresh).toContain(
+      'it runs after the replay test-data: what it writes is added to the records the replay puts back from the checkpoint, never in their place; leave it out of the file if the checkpoint already holds the data it would seed',
+    );
+  });
+
   it('says what output names, from where, for a resource taken back, a masking and one not applied whole, in the words it prints', () => {
     const output = section(DOC, '### What it created: `output`');
     const pins: Array<[string, string, string]> = [
@@ -2529,6 +2554,11 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
         "a replay's mapping in the store of checkpoints",
       ],
       [OUTPUT, "code: 'TWO_STATES',", 'two states under one alias'],
+      [
+        OUTPUT,
+        'return { state: refreshed.current.state, setAside: refreshed.before };',
+        'the state kept of it before, on the same host under its former Id, is set aside and said',
+      ],
       [
         CLI,
         'return { answer, code: whole ? DONE_EXIT : PARTIAL_EXIT };',
