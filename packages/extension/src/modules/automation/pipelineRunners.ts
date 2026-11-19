@@ -523,11 +523,21 @@ export function pwshLauncher(raw: LauncherInput): PipelineLauncher {
     '  [Console]::Error.WriteLine($stamped)',
     '}',
     '',
+    // Windows PowerShell 5.1, which `powershell` starts, writes the log in
+    // two encodings and passes the arguments of a native command as 7.0 to
+    // 7.2 did: said first, nothing run.
+    'if ($PSVersionTable.PSVersion.Major -lt 7) {',
+    '  Say ("PowerShell 7 (pwsh) runs this script, not PowerShell {0}: nothing ran. Start it with pwsh." -f $PSVersionTable.PSVersion)',
+    '  exit 127',
+    '}',
+    // Read by PowerShell from `node --version`: PowerShell 7.0 to 7.2 drop the
+    // double quotes inside an argument of a native command, and a `node -e`
+    // check read `split(.)`, failed, and said Node.js was not found.
     '$node = Get-Command node -ErrorAction SilentlyContinue',
     '$nodeOk = $false',
-    'if ($node) {',
-    `  & node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > ${NODE_FLOOR.major} || (a === ${NODE_FLOOR.major} && b >= ${NODE_FLOOR.minor}) ? 0 : 1)'`,
-    '  $nodeOk = ($LASTEXITCODE -eq 0)',
+    "if ($node -and ((& node --version) -match '^v(\\d+)\\.(\\d+)')) {",
+    '  $major = [int] $Matches[1]',
+    `  $nodeOk = ($major -gt ${NODE_FLOOR.major}) -or ($major -eq ${NODE_FLOOR.major} -and [int] $Matches[2] -ge ${NODE_FLOOR.minor})`,
     '}',
     'if (-not $nodeOk) {',
     `  Say "Node.js ${NODE_FLOOR.major}.${NODE_FLOOR.minor} or later is not found on this PATH: nothing ran. Install it, or add its folder to PATH."`,

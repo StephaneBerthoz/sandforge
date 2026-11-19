@@ -352,6 +352,52 @@ describe('the PowerShell launcher of a pipeline', () => {
       ]);
     },
   );
+
+  it.skipIf(!pwsh)('finds Node where PowerShell passes arguments as it did before 7.3', () => {
+    // PowerShell 7.0 to 7.2 dropped the double quotes inside an argument
+    // of a native command: node read `split(.)`, failed, and the launcher
+    // said Node.js was not found, nothing run.
+    const dir = realpathSync.native(scratch());
+    const launcher = pwshLauncher(launcherInput());
+    const script = join(dir, launcher.fileName);
+    writeFileSync(script, launcher.text);
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    const said = pwshTools(bin, 0);
+
+    const ran = spawnSync(
+      'pwsh',
+      [
+        '-NoProfile',
+        '-Command',
+        `$PSNativeCommandArgumentPassing = 'Legacy'; & ${pwshQuote(script)}; exit $LASTEXITCODE`,
+      ],
+      {
+        env: envWithPath(bin, {
+          SANDFORGE_JOURNAL_DIR: join(dir, 'journal'),
+          ORG_ALIAS_1: 'DEV',
+          SANDFORGE_VAR_APITOKEN: 'x',
+        }),
+        encoding: 'utf8',
+      },
+    );
+
+    expect(ran.stderr).not.toContain('is not found');
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(readFileSync(said, 'utf8')).toContain('sandforge@1.81.0');
+  });
+
+  it('says it needs PowerShell 7 before anything else, where an older one, Windows PowerShell 5.1 among them, runs it', () => {
+    const text = pwshLauncher(launcherInput()).text;
+    const gate = text.indexOf('if ($PSVersionTable.PSVersion.Major -lt 7) {');
+    expect(gate).toBeGreaterThan(text.indexOf('function Say('));
+    expect(gate).toBeLessThan(text.indexOf('$node = Get-Command node'));
+    expect(text).toContain(
+      'Say ("PowerShell 7 (pwsh) runs this script, not PowerShell {0}: nothing ran. Start it with pwsh." -f $PSVersionTable.PSVersion)',
+    );
+    // Read by PowerShell itself: no argument of a native command holds a double quote.
+    expect(text).not.toContain('& node -e');
+  });
 });
 
 describe('the GitHub Actions workflow of a pipeline', () => {
