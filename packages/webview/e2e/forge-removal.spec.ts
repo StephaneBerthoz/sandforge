@@ -93,6 +93,28 @@ const OLDER_RUN = {
   removalLeft: ['003000000000002AAA'],
 };
 
+/**
+ * A run whose removal took its one account and kept the duplicate record set
+ * the target's rules made of it, as changed since the run: none of its own
+ * records left, and the user it wrote as kept.
+ */
+const SETS_KEPT_RUN = {
+  forgeId: 'forge-sets-kept',
+  status: 'success',
+  graph: GRAPH,
+  duration: 12_000,
+  timestamp: '2026-09-01T08:00:00.000Z',
+  idRemapCount: 1,
+  idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+  idRemapExisting: [],
+  idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+  targetOrgId: QA_SANDBOX.id,
+  runUserId: '005000000000007AAA',
+  writtenBetween: { first: '2026-09-01T07:59:00.000Z', last: '2026-09-01T08:00:00.000Z' },
+  undo: { removedAt: '2026-09-02T08:00:00.000Z', deleted: 1, alreadyGone: 0, kept: 1, refused: 0 },
+  removalLeft: [],
+};
+
 /** What the target runs on the run's objects: a flow before a delete, a package trigger, orders. */
 const AUTOMATION = {
   objectsRead: ['Account', 'Order'],
@@ -180,6 +202,28 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('forge-removal-plan')).toContainText('Contact: 1 record');
       const confirming = await checkAccessibility(page);
       expect(confirming.violations.length, formatViolations(confirming.violations)).toBe(0);
+    });
+
+    test('offers again a run whose last removal kept the duplicate record set of its records, holds its confirmation until the records changed since are included, and passes axe', async ({
+      page,
+    }) => {
+      const bridge = await openForge(page, theme);
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [SETS_KEPT_RUN],
+      });
+
+      await page.getByTestId('forge-history-remove-sets-forge-sets-kept').click();
+      await expect(page.getByTestId('forge-removal-sets-again')).toContainText(
+        'duplicate record sets',
+      );
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+      const held = await checkAccessibility(page);
+      expect(held.violations.length, formatViolations(held.violations)).toBe(0);
+
+      await page.getByTestId('forge-removal-include-changed').check();
+      await expect(page.getByTestId('danger-confirm-btn')).toBeEnabled();
     });
 
     test("says on Review's Automation tab what may refuse a removal of the run, and passes axe", async ({
