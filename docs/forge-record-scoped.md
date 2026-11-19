@@ -407,7 +407,9 @@ object they reach is read from its whole table, nor held to 200 rows.
 - **Fixed once read.** A dry run keeps the ids it read as a plan
   (`roots/rootPlanStore.ts`): one JSON file of the org, the run's
   fingerprint, the query, when they were read and the ids sorted, with their
-  SHA-256, the owner's alone (0600, in a 0700 folder). The panel keeps it in
+  SHA-256, the owner's alone (0600, in a 0700 folder; on Windows, as private
+  as the folder it is in, which [the FAQ](faq.md#what-does-sandforge-keep-on-my-machine)
+  explains). The panel keeps it in
   `forge-roots/<fingerprint>.json` under the extension's storage, for a day;
   the command line in the file `--roots-plan` names. A run given the plan
   writes those ids and reads no query: one deleted since is said gone, never
