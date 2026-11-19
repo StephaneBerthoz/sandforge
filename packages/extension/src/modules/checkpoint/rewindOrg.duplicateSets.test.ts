@@ -340,11 +340,11 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
     expect(undo.result.status).toBe('partial');
     expect(undo.result.residual).toEqual([
       {
-        objectApiName: ITEM,
+        objectApiName: SET,
         reason: 'notBack',
-        count: 2,
-        ids: [item(1), item(2)],
-        message: 'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+        count: 1,
+        ids: [set(1)],
+        message: '2 of their items',
       },
     ]);
   });

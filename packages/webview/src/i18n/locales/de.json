@@ -8390,8 +8390,8 @@
         "title": "Mit ihnen ebenfalls gelöscht, außerhalb des Prüfpunkts",
         "line_one": "{{formatted}} {{outside}}-Datensatz, erstellt unter {{parents}}",
         "line_other": "{{formatted}} {{outside}}-Datensätze, erstellt unter {{parents}}",
-        "duplicateSets_one": "{{formatted}} Duplikatgruppe, die eine Duplikatsregel seit dem Prüfpunkt zu {{parents}} angelegt hat",
-        "duplicateSets_other": "{{formatted}} Duplikatgruppen, die Duplikatsregeln seit dem Prüfpunkt zu {{parents}} angelegt haben",
+        "duplicateSets_one": "{{formatted}} Duplikatgruppe, die eine Duplikatsregel seit dem Prüfpunkt zu {{parents}} angelegt hat — ein Rückgängigmachen holt sie ohne ihre Elemente zurück, die Salesforce nicht zurückgibt",
+        "duplicateSets_other": "{{formatted}} Duplikatgruppen, die Duplikatsregeln seit dem Prüfpunkt zu {{parents}} angelegt haben — ein Rückgängigmachen holt sie ohne ihre Elemente zurück, die Salesforce nicht zurückgibt",
         "parents_one": "{{formatted}} {{object}}-Datensatz, den das Zurücksetzen löscht",
         "parents_other": "{{formatted}} {{object}}-Datensätzen, die das Zurücksetzen löscht",
         "everything": "Sie gehen mit den Datensätzen, an denen sie hängen.",
@@ -8448,7 +8448,9 @@
         "links_other": "stellt {{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wieder so her, wie sie waren",
         "customSettings_one": "Davon ist {{formatted}} eine Zeile einer benutzerdefinierten Einstellung: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält.",
         "customSettings_other": "Davon sind {{formatted}} Zeilen benutzerdefinierter Einstellungen: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält.",
-        "unseen": "Es löscht auch, ungezählt, was {{user}} unter den Datensätzen, die es löscht, in {{children}} nicht sehen kann."
+        "unseen": "Es löscht auch, ungezählt, was {{user}} unter den Datensätzen, die es löscht, in {{children}} nicht sehen kann.",
+        "duplicateSets_one": "Es löscht außerdem {{formatted}} Duplikatgruppe, die die Duplikatsregeln daraus angelegt haben: Ein Rückgängigmachen holt sie ohne ihre Elemente zurück, die Salesforce nicht zurückgibt.",
+        "duplicateSets_other": "Es löscht außerdem {{formatted}} Duplikatgruppen, die die Duplikatsregeln daraus angelegt haben: Ein Rückgängigmachen holt sie ohne ihre Elemente zurück, die Salesforce nicht zurückgibt."
       },
       "toRecreate_one": "{{formatted}} neu anzulegen",
       "toRecreate_other": "{{formatted}} neu anzulegen",
@@ -8609,9 +8611,9 @@
           "line_other": "{{object}}: {{formatted}} Datensätze, die das Zurücksetzen belassen hat"
         },
         "notBack": {
-          "title": "Nicht zurückgeholt",
-          "line_one": "{{object}}: {{formatted}} Datensatz noch im Papierkorb: Salesforce hat ihn nicht mit dem zurückgeholt, mit dem er gelöscht wurde",
-          "line_other": "{{object}}: {{formatted}} Datensätze noch im Papierkorb: Salesforce hat sie nicht mit dem zurückgeholt, mit dem sie gelöscht wurden"
+          "title": "Ohne ihre Elemente zurückgeholt",
+          "line_one": "{{object}}: {{formatted}} Datensatz ohne seine Elemente zurückgeholt, endgültig verloren: Salesforce holt eine gelöschte Duplikatgruppe ohne ihre Elemente zurück",
+          "line_other": "{{object}}: {{formatted}} Datensätze ohne ihre Elemente zurückgeholt, endgültig verloren: Salesforce holt eine gelöschte Duplikatgruppe ohne ihre Elemente zurück"
         }
       },
       "undeleted": {

@@ -289,19 +289,18 @@ describe('RewindResult', () => {
     );
   });
 
-  it('says the items of a duplicate record set an undo brought back without them, under what it did not bring back (live: a set back, empty)', () => {
+  it('says the duplicate record sets an undo brought back without their items, gone for good (live: a set back, empty, in every order)', () => {
     renderResult(
       withoutUndo(
         rewindResult({
           status: 'partial',
           residual: [
             {
-              objectApiName: 'DuplicateRecordItem',
+              objectApiName: 'DuplicateRecordSet',
               reason: 'notBack',
-              count: 2,
+              count: 1,
               ids: [],
-              message:
-                'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+              message: '2 of their items',
             },
           ],
         }),
@@ -313,12 +312,12 @@ describe('RewindResult', () => {
       within(groups)
         .getAllByRole('heading')
         .map((heading) => heading.textContent),
-    ).toEqual(['Not brought back']);
+    ).toEqual(['Brought back without their items']);
     expect(
-      screen.getByTestId('checkpoint-result-residual-notBack-DuplicateRecordItem').textContent,
+      screen.getByTestId('checkpoint-result-residual-notBack-DuplicateRecordSet').textContent,
     ).toBe(
-      'DuplicateRecordItem: 2 records still in the recycle bin: Salesforce did not bring them back with what they went with' +
-        'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+      'DuplicateRecordSet: 1 record brought back without its items, gone for good: Salesforce brings a deleted duplicate record set back without its items' +
+        '2 of their items',
     );
   });
 

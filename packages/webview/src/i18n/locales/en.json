@@ -8390,8 +8390,8 @@
         "title": "Also deleted with them, outside the checkpoint",
         "line_one": "{{formatted}} {{outside}} record created under {{parents}}",
         "line_other": "{{formatted}} {{outside}} records created under {{parents}}",
-        "duplicateSets_one": "{{formatted}} duplicate record set made since the checkpoint, in which a duplicate rule reported {{parents}}",
-        "duplicateSets_other": "{{formatted}} duplicate record sets made since the checkpoint, in which duplicate rules reported {{parents}}",
+        "duplicateSets_one": "{{formatted}} duplicate record set made since the checkpoint, in which a duplicate rule reported {{parents}} — an undo brings it back without its items, which Salesforce does not return",
+        "duplicateSets_other": "{{formatted}} duplicate record sets made since the checkpoint, in which duplicate rules reported {{parents}} — an undo brings them back without their items, which Salesforce does not return",
         "parents_one": "{{formatted}} {{object}} record the rewind deletes",
         "parents_other": "{{formatted}} {{object}} records the rewind deletes",
         "everything": "They go with the records they hang from.",
@@ -8448,7 +8448,9 @@
         "links_other": "puts {{formatted}} links between files and records back as they were",
         "customSettings_one": "Of them, {{formatted}} is a row of a custom setting: configuration, set back as the checkpoint holds it.",
         "customSettings_other": "Of them, {{formatted}} are rows of custom settings: configuration, set back as the checkpoint holds them.",
-        "unseen": "It also deletes, uncounted, what {{user}} can't see under the records it deletes, in {{children}}."
+        "unseen": "It also deletes, uncounted, what {{user}} can't see under the records it deletes, in {{children}}.",
+        "duplicateSets_one": "It also deletes {{formatted}} duplicate record set the duplicate rules made of them: an undo brings it back without its items, which Salesforce does not return.",
+        "duplicateSets_other": "It also deletes {{formatted}} duplicate record sets the duplicate rules made of them: an undo brings them back without their items, which Salesforce does not return."
       },
       "toRecreate_one": "{{formatted}} to make again",
       "toRecreate_other": "{{formatted}} to make again",
@@ -8609,9 +8611,9 @@
           "line_other": "{{object}}: {{formatted}} records the rewind kept"
         },
         "notBack": {
-          "title": "Not brought back",
-          "line_one": "{{object}}: {{formatted}} record still in the recycle bin: Salesforce did not bring it back with what it went with",
-          "line_other": "{{object}}: {{formatted}} records still in the recycle bin: Salesforce did not bring them back with what they went with"
+          "title": "Brought back without their items",
+          "line_one": "{{object}}: {{formatted}} record brought back without its items, gone for good: Salesforce brings a deleted duplicate record set back without its items",
+          "line_other": "{{object}}: {{formatted}} records brought back without their items, gone for good: Salesforce brings a deleted duplicate record set back without its items"
         }
       },
       "undeleted": {

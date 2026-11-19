@@ -1133,11 +1133,35 @@ describe('RewindPreview', () => {
     expect(
       screen.getByTestId('checkpoint-preview-outside-Contact-DuplicateRecordSet').textContent,
     ).toBe(
-      '1 duplicate record set made since the checkpoint, in which a duplicate rule reported 2 Contact records the rewind deletes',
+      '1 duplicate record set made since the checkpoint, in which a duplicate rule reported 2 Contact records the rewind deletes — an undo brings it back without its items, which Salesforce does not return',
     );
     expect(
       screen.getByTestId('checkpoint-preview-outside-Contact-DuplicateRecordItem').textContent,
     ).toBe('2 DuplicateRecordItem records created under 2 Contact records the rewind deletes');
+    // Its confirmation says it too, before anything is written.
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'It also deletes 1 duplicate record set the duplicate rules made of them: an undo brings it back without its items, which Salesforce does not return.',
+    );
+  });
+
+  it('says nothing of the duplicate record sets in its confirmation when what hangs from the records outside a checkpoint of picked objects stays', () => {
+    renderPreview(readyCheckpoint({ scope: { mode: 'picked', leftOut: [] } }));
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Contact', {
+            toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+            outside: [
+              { objectApiName: 'DuplicateRecordItem', count: 2, parents: 2 },
+              { objectApiName: 'DuplicateRecordSet', count: 1, parents: 2 },
+            ],
+          }),
+        ],
+      }),
+    });
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(screen.getByRole('dialog').textContent).not.toContain('duplicate record set');
   });
 
   it('in a checkpoint of everything, says what goes along outside it, with no box', () => {

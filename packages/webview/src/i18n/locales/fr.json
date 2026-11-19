@@ -8390,8 +8390,8 @@
         "title": "Supprimés aussi avec eux, hors du point de contrôle",
         "line_one": "{{formatted}} enregistrement {{outside}} créé sous {{parents}}",
         "line_other": "{{formatted}} enregistrements {{outside}} créés sous {{parents}}",
-        "duplicateSets_one": "{{formatted}} ensemble d'enregistrements en double créé depuis le point de contrôle, où une règle de doublons a signalé {{parents}}",
-        "duplicateSets_other": "{{formatted}} ensembles d'enregistrements en double créés depuis le point de contrôle, où des règles de doublons ont signalé {{parents}}",
+        "duplicateSets_one": "{{formatted}} ensemble d'enregistrements en double créé depuis le point de contrôle, où une règle de doublons a signalé {{parents}} — une annulation le ramène sans ses éléments, que Salesforce ne rend pas",
+        "duplicateSets_other": "{{formatted}} ensembles d'enregistrements en double créés depuis le point de contrôle, où des règles de doublons ont signalé {{parents}} — une annulation les ramène sans leurs éléments, que Salesforce ne rend pas",
         "parents_one": "{{formatted}} enregistrement {{object}} que le retour arrière supprime",
         "parents_other": "{{formatted}} enregistrements {{object}} que le retour arrière supprime",
         "everything": "Ils partent avec les enregistrements dont ils dépendent.",
@@ -8448,7 +8448,9 @@
         "links_other": "remet {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient",
         "customSettings_one": "Parmi eux, {{formatted}} est une ligne d'un paramètre personnalisé : de la configuration, remise telle que le point de contrôle la garde.",
         "customSettings_other": "Parmi eux, {{formatted}} sont des lignes de paramètres personnalisés : de la configuration, remises telles que le point de contrôle les garde.",
-        "unseen": "Il supprime aussi, sans le compter, ce que {{user}} ne peut pas voir sous les enregistrements qu'il supprime, dans {{children}}."
+        "unseen": "Il supprime aussi, sans le compter, ce que {{user}} ne peut pas voir sous les enregistrements qu'il supprime, dans {{children}}.",
+        "duplicateSets_one": "Il supprime aussi {{formatted}} ensemble d'enregistrements en double que les règles de doublons en ont fait : une annulation le ramène sans ses éléments, que Salesforce ne rend pas.",
+        "duplicateSets_other": "Il supprime aussi {{formatted}} ensembles d'enregistrements en double que les règles de doublons en ont faits : une annulation les ramène sans leurs éléments, que Salesforce ne rend pas."
       },
       "toRecreate_one": "{{formatted}} à recréer",
       "toRecreate_other": "{{formatted}} à recréer",
@@ -8609,9 +8611,9 @@
           "line_other": "{{object}} : {{formatted}} enregistrements que le retour arrière a gardés"
         },
         "notBack": {
-          "title": "Non ramenés",
-          "line_one": "{{object}} : {{formatted}} enregistrement toujours dans la corbeille : Salesforce ne l'a pas ramené avec ce avec quoi il était parti",
-          "line_other": "{{object}} : {{formatted}} enregistrements toujours dans la corbeille : Salesforce ne les a pas ramenés avec ce avec quoi ils étaient partis"
+          "title": "Ramenés sans leurs éléments",
+          "line_one": "{{object}} : {{formatted}} enregistrement ramené sans ses éléments, perdus pour de bon : Salesforce ramène un ensemble d'enregistrements en double supprimé sans ses éléments",
+          "line_other": "{{object}} : {{formatted}} enregistrements ramenés sans leurs éléments, perdus pour de bon : Salesforce ramène un ensemble d'enregistrements en double supprimé sans ses éléments"
         }
       },
       "undeleted": {

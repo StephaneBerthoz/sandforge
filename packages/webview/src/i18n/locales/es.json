@@ -8390,8 +8390,8 @@
         "title": "También se eliminan con ellos, fuera del punto de control",
         "line_one": "{{formatted}} registro de {{outside}} creado bajo {{parents}}",
         "line_other": "{{formatted}} registros de {{outside}} creados bajo {{parents}}",
-        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados creado desde el punto de control, en el que una regla de duplicados señaló {{parents}}",
-        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados creados desde el punto de control, en los que reglas de duplicados señalaron {{parents}}",
+        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados creado desde el punto de control, en el que una regla de duplicados señaló {{parents}} — deshacer lo recupera sin sus elementos, que Salesforce no devuelve",
+        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados creados desde el punto de control, en los que reglas de duplicados señalaron {{parents}} — deshacer los recupera sin sus elementos, que Salesforce no devuelve",
         "parents_one": "{{formatted}} registro de {{object}} que el retroceso elimina",
         "parents_other": "{{formatted}} registros de {{object}} que el retroceso elimina",
         "everything": "Se van con los registros de los que dependen.",
@@ -8448,7 +8448,9 @@
         "links_other": "deja {{formatted}} vínculos entre archivos y registros como estaban",
         "customSettings_one": "De ellos, {{formatted}} es una fila de una configuración personalizada: configuración, que vuelve a como la guarda el punto de control.",
         "customSettings_other": "De ellos, {{formatted}} son filas de configuraciones personalizadas: configuración, que vuelve a como la guarda el punto de control.",
-        "unseen": "También elimina, sin contarlo, lo que {{user}} no puede ver bajo los registros que elimina, en {{children}}."
+        "unseen": "También elimina, sin contarlo, lo que {{user}} no puede ver bajo los registros que elimina, en {{children}}.",
+        "duplicateSets_one": "También elimina {{formatted}} conjunto de registros duplicados que las reglas de duplicados hicieron con ellos: deshacer lo recupera sin sus elementos, que Salesforce no devuelve.",
+        "duplicateSets_other": "También elimina {{formatted}} conjuntos de registros duplicados que las reglas de duplicados hicieron con ellos: deshacer los recupera sin sus elementos, que Salesforce no devuelve."
       },
       "toRecreate_one": "{{formatted}} por volver a crear",
       "toRecreate_other": "{{formatted}} por volver a crear",
@@ -8609,9 +8611,9 @@
           "line_other": "{{object}}: {{formatted}} registros que el retroceso mantuvo"
         },
         "notBack": {
-          "title": "No recuperados",
-          "line_one": "{{object}}: {{formatted}} registro aún en la papelera de reciclaje: Salesforce no lo recuperó con aquello con lo que se fue",
-          "line_other": "{{object}}: {{formatted}} registros aún en la papelera de reciclaje: Salesforce no los recuperó con aquello con lo que se fueron"
+          "title": "Recuperados sin sus elementos",
+          "line_one": "{{object}}: {{formatted}} registro recuperado sin sus elementos, perdidos para siempre: Salesforce recupera un conjunto de registros duplicados eliminado sin sus elementos",
+          "line_other": "{{object}}: {{formatted}} registros recuperados sin sus elementos, perdidos para siempre: Salesforce recupera un conjunto de registros duplicados eliminado sin sus elementos"
         }
       },
       "undeleted": {

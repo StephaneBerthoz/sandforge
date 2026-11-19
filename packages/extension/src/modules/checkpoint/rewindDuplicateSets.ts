@@ -218,10 +218,9 @@ export async function setsLeftOf(
 }
 
 /**
- * Of the sets `ids` an undo brought back, the items still in the recycle bin:
- * run for real, an undo brought back the contacts a rewind had deleted, then
- * their set, empty, its two items still deleted, and no answer of the
- * undelete said so. A set of none of them is not read.
+ * Of the sets `ids` an undo brought back, the items the recycle bin still
+ * lists, deleted: Salesforce brings a deleted set back without them, and
+ * answers their own undelete "Entity is not in the recycle bin" (G-Z03).
  */
 export async function itemsNotBack(
   org: { queryDeleted(soql: string): Promise<{ records: unknown[] }> },

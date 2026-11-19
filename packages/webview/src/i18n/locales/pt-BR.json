@@ -8390,8 +8390,8 @@
         "title": "Também excluídos com eles, fora do ponto de verificação",
         "line_one": "{{formatted}} registro de {{outside}} criado sob {{parents}}",
         "line_other": "{{formatted}} registros de {{outside}} criados sob {{parents}}",
-        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados criado desde o ponto de verificação, no qual uma regra de duplicidade sinalizou {{parents}}",
-        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados criados desde o ponto de verificação, nos quais regras de duplicidade sinalizaram {{parents}}",
+        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados criado desde o ponto de verificação, no qual uma regra de duplicidade sinalizou {{parents}} — desfazer o traz de volta sem seus itens, que o Salesforce não devolve",
+        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados criados desde o ponto de verificação, nos quais regras de duplicidade sinalizaram {{parents}} — desfazer os traz de volta sem seus itens, que o Salesforce não devolve",
         "parents_one": "{{formatted}} registro de {{object}} que o retrocesso exclui",
         "parents_other": "{{formatted}} registros de {{object}} que o retrocesso exclui",
         "everything": "Eles saem com os registros de que dependem.",
@@ -8448,7 +8448,9 @@
         "links_other": "deixa {{formatted}} vínculos entre arquivos e registros como estavam",
         "customSettings_one": "Destes, {{formatted}} é uma linha de uma configuração personalizada: configuração, que volta ao que o ponto de verificação guarda.",
         "customSettings_other": "Destes, {{formatted}} são linhas de configurações personalizadas: configuração, que volta ao que o ponto de verificação guarda.",
-        "unseen": "Ele também exclui, sem contar, o que {{user}} não consegue ver sob os registros que exclui, em {{children}}."
+        "unseen": "Ele também exclui, sem contar, o que {{user}} não consegue ver sob os registros que exclui, em {{children}}.",
+        "duplicateSets_one": "Também exclui {{formatted}} conjunto de registros duplicados que as regras de duplicidade fizeram com eles: desfazer o traz de volta sem seus itens, que o Salesforce não devolve.",
+        "duplicateSets_other": "Também exclui {{formatted}} conjuntos de registros duplicados que as regras de duplicidade fizeram com eles: desfazer os traz de volta sem seus itens, que o Salesforce não devolve."
       },
       "toRecreate_one": "{{formatted}} a recriar",
       "toRecreate_other": "{{formatted}} a recriar",
@@ -8609,9 +8611,9 @@
           "line_other": "{{object}}: {{formatted}} registros que o retrocesso manteve"
         },
         "notBack": {
-          "title": "Não trazidos de volta",
-          "line_one": "{{object}}: {{formatted}} registro ainda na lixeira: o Salesforce não o trouxe de volta com aquilo com que saiu",
-          "line_other": "{{object}}: {{formatted}} registros ainda na lixeira: o Salesforce não os trouxe de volta com aquilo com que saíram"
+          "title": "Trazidos de volta sem seus itens",
+          "line_one": "{{object}}: {{formatted}} registro trazido de volta sem seus itens, perdidos para sempre: o Salesforce traz de volta um conjunto de registros duplicados excluído sem seus itens",
+          "line_other": "{{object}}: {{formatted}} registros trazidos de volta sem seus itens, perdidos para sempre: o Salesforce traz de volta um conjunto de registros duplicados excluído sem seus itens"
         }
       },
       "undeleted": {

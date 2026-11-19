@@ -125,7 +125,7 @@ import {
   type SpooledUndoPlans,
 } from './rewindJournal.js';
 import { SNAPSHOT_CHUNK_IDS } from './snapshotIndex.js';
-import { DUPLICATE_SET_OBJECT, itemsNotBack } from './rewindDuplicateSets.js';
+import { DUPLICATE_SET_OBJECT, itemsNotBack, setsLeftOf } from './rewindDuplicateSets.js';
 import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 
 /** What an undo is given. */
@@ -177,13 +177,13 @@ export interface UndoResidual {
   /** Who last changed them, by User Id, and how many each. */
   by: Record<string, number>;
   /**
-   * Set for records the org did not bring back with what they went to the
-   * recycle bin with (`notBack`), which no one changed: the items of a
-   * duplicate record set the undo brought back, said with that set. Absent,
-   * records given back that still differ.
+   * Set for records the undo brought back short (`notBack`), which no one
+   * changed: duplicate record sets back without their items, which
+   * Salesforce does not bring back. Absent, records given back that still
+   * differ.
    */
   reason?: 'notBack';
-  /** What they went with, for {@link reason}. */
+  /** How many of what they held is gone, for {@link reason}, when the bin still lists them. */
   message?: string;
 }
 
@@ -559,10 +559,15 @@ async function valuesBefore(
 }
 
 /**
- * Of the duplicate record sets the undo set out to bring back, those it did,
- * read again for the items still in the recycle bin: said as records it did
- * not bring back, with the sets they went with. None read when it brought
- * back no set; a read that fails is said in `notes`.
+ * Of the duplicate record sets the undo set out to bring back, those it did
+ * that came back without their items, read again: said as records it brought
+ * back short, with how many of their items the recycle bin still lists. Probed
+ * on a scratch org (G-Z03), Salesforce brings a deleted set back empty, in
+ * whatever order it and the records it reported were deleted and brought
+ * back, and answers each item's own undelete "Entity is not in the recycle
+ * bin": its items are gone for good. Read by its items alone, a set whose
+ * items the bin no longer lists would read as back whole. None read when it
+ * brought back no set; a read that fails is said in `notes`.
  */
 async function setsBackShort(
   org: RemovalOrg,
@@ -577,9 +582,11 @@ async function setsBackShort(
     for (const id of page) if (!stayed.has(id)) back.push(id);
   }
   if (back.length === 0) return undefined;
-  let found: { sets: number; items: string[] };
+  let empty: string[];
+  let lost: number;
   try {
-    found = await itemsNotBack(org, back);
+    empty = (await setsLeftOf(org, back)).filter((set) => set.items === 0).map((set) => set.id);
+    lost = empty.length > 0 ? (await itemsNotBack(org, empty)).items.length : 0;
   } catch (err: unknown) {
     notes.push(
       `Whether the ${DUPLICATE_SET_OBJECT} records the undo brought back came back with their ` +
@@ -587,16 +594,14 @@ async function setsBackShort(
     );
     return undefined;
   }
-  if (found.items.length === 0) return undefined;
+  if (empty.length === 0) return undefined;
   return {
-    objectApiName: 'DuplicateRecordItem',
-    count: found.items.length,
-    ids: found.items.slice(0, RESIDUAL_IDS_KEPT),
+    objectApiName: DUPLICATE_SET_OBJECT,
+    count: empty.length,
+    ids: empty.slice(0, RESIDUAL_IDS_KEPT),
     by: {},
     reason: 'notBack',
-    message:
-      `of ${found.sets} ${DUPLICATE_SET_OBJECT} the undo brought back, which came back ` +
-      'without them',
+    ...(lost > 0 ? { message: `${lost} of their items` } : {}),
   };
 }
 

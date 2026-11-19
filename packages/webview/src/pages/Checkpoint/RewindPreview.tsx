@@ -1197,6 +1197,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           selecting
             ? { objects: picks, deletesAgain: plan ? deletedAgain(plan).length > 0 : false }
             : undefined,
+          confirming?.acceptOutside === true ? duplicateSetsOf(counted) : 0,
         )}
         confirmText={orgName}
       />
@@ -1238,7 +1239,9 @@ function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): nu
  * object by object, what its deletions take along that `user` can't see,
  * which no number counts. A rewind of some objects names them, and says what
  * it does to the others: nothing, or delete again what comes back with a
- * record it brings back.
+ * record it brings back. The duplicate record sets it deletes with what
+ * goes along outside the checkpoint (`sets`) are said with what an undo
+ * leaves of them: Salesforce brings a deleted set back without its items.
  */
 function confirmDescription(
   t: TFunction,
@@ -1248,6 +1251,7 @@ function confirmDescription(
   settings: ReadonlySet<string>,
   user: string,
   limited?: { objects: readonly string[]; deletesAgain: boolean },
+  sets = 0,
 ): string {
   const totals = rewindTotals(diff);
   const parts: Array<[count: number, key: string]> = [
@@ -1295,7 +1299,27 @@ function confirmDescription(
     ...(unseen.length > 0
       ? [t('checkpoint.preview.confirm.unseen', { user, children: listWords(unseen, t) })]
       : []),
+    ...(sets > 0
+      ? [
+          t('checkpoint.preview.confirm.duplicateSets', {
+            count: sets,
+            formatted: formatNumber(sets),
+          }),
+        ]
+      : []),
   ].join(' ');
+}
+
+/** The duplicate record sets a diff names beside what goes along outside the checkpoint, its objects together. */
+function duplicateSetsOf(diff: Pick<RewindDiff, 'objects'>): number {
+  return diff.objects.reduce(
+    (sum, object) =>
+      sum +
+      object.outside
+        .filter(({ objectApiName }) => objectApiName === DUPLICATE_SET_OBJECT)
+        .reduce((of, { count }) => of + count, 0),
+    0,
+  );
 }
 
 /** A box the user ticks to accept what the preview names. */

@@ -2224,20 +2224,20 @@ describe('rewindLines, undoLines and resultJson', () => {
         status: 'partial',
         residual: [
           {
-            objectApiName: 'DuplicateRecordItem',
+            objectApiName: 'DuplicateRecordSet',
             reason: 'notBack',
-            count: 2,
-            ids: ['0GL000000000001AAA', '0GL000000000002AAA'],
-            message: 'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+            count: 1,
+            ids: ['0GK000000000001AAA'],
+            message: '2 of their items',
           },
         ],
       }),
     );
     expect(lines[0]).toBe(
-      "DEV-SB is back as it was before its rewind to 'Before UAT', except 2 record(s), each said with why:",
+      "DEV-SB is back as it was before its rewind to 'Before UAT', except 1 record(s), each said with why:",
     );
     expect(lines).toContain(
-      '  DuplicateRecordItem 2 — still in the recycle bin: of 1 DuplicateRecordSet the undo brought back, which came back without them',
+      '  DuplicateRecordSet 1 — brought back without their items, gone for good (2 of their items): Salesforce brings a deleted duplicate record set back without its items',
     );
   });
 
@@ -2679,7 +2679,7 @@ describe('files', () => {
       '  also deleted with them, outside the checkpoint: 2 DuplicateRecordItem created under 2 Contact',
     );
     expect(lines).toContain(
-      "  also deleted with them, outside the checkpoint: 1 DuplicateRecordSet in which DEV-SB's duplicate rules reported 2 Contact since the checkpoint",
+      "  also deleted with them, outside the checkpoint: 1 DuplicateRecordSet in which DEV-SB's duplicate rules reported 2 Contact since the checkpoint — an undo brings it back without its items, which Salesforce does not return",
     );
     expect(lines.filter((line) => line.includes('DuplicateRecordSet created under'))).toEqual([]);
   });

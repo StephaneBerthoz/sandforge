@@ -7865,7 +7865,7 @@
       "outside": {
         "title": "チェックポイントの外で一緒に削除されるもの",
         "line_other": "{{parents}} の下に作成された {{outside}} の {{formatted}} 件のレコード",
-        "duplicateSets_other": "チェックポイント以降に作成され、重複ルールが {{parents}} を報告した重複レコードセット {{formatted}} 件",
+        "duplicateSets_other": "チェックポイント以降に作成され、重複ルールが {{parents}} を報告した重複レコードセット {{formatted}} 件。元に戻すと項目なしで戻ります (Salesforce は項目を戻しません)",
         "parents_other": "巻き戻しで削除する {{object}} の {{formatted}} 件のレコード",
         "everything": "依存先のレコードと一緒に削除されます。",
         "accept": "チェックポイント外のオブジェクトの子レコードにも及ぶ削除を許可する",
@@ -7910,7 +7910,8 @@
         "carriers_other": "チェックポイントのレコードを一緒に持っていったレコード {{formatted}} 件をいったん復元して再び削除",
         "links_other": "ファイルとレコードの間のリンク {{formatted}} 件を当時の状態に戻す",
         "customSettings_other": "このうち {{formatted}} 件はカスタム設定の行です。設定データであり、チェックポイントが保持する状態に戻します。",
-        "unseen": "削除するレコードの下にある {{children}} のうち {{user}} に見えないものも、数えずに削除します。"
+        "unseen": "削除するレコードの下にある {{children}} のうち {{user}} に見えないものも、数えずに削除します。",
+        "duplicateSets_other": "重複ルールがこれらから作成した重複レコードセット {{formatted}} 件も削除します。元に戻すと項目なしで戻ります (Salesforce は項目を戻しません)。"
       },
       "toRecreate_other": "再作成 {{formatted}} 件",
       "toRecreateHint": "ごみ箱にもうないもの: 新しい Id",
@@ -8042,8 +8043,8 @@
           "line_other": "{{object}}: 巻き戻しで残したレコード {{formatted}} 件"
         },
         "notBack": {
-          "title": "戻らなかったもの",
-          "line_other": "{{object}}: ごみ箱に残っている {{formatted}} 件のレコード。Salesforce は一緒に削除されたものと共に戻しませんでした"
+          "title": "項目なしで戻ったもの",
+          "line_other": "{{object}}: 項目なしで戻ったレコード {{formatted}} 件。項目は完全に失われました。Salesforce は削除された重複レコードセットを項目なしで戻します"
         }
       },
       "undeleted": {

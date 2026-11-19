@@ -2328,7 +2328,9 @@ export function previewLines(
           : outside.objectApiName === DUPLICATE_SET_OBJECT
             ? `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
               `${DUPLICATE_SET_OBJECT} in which ${orgName}'s duplicate rules reported ` +
-              `${count(outside.parents)} ${object.objectApiName} since the checkpoint`
+              `${count(outside.parents)} ${object.objectApiName} since the checkpoint — an ` +
+              `undo brings ${outside.count === 1 ? 'it back without its' : 'them back without their'} ` +
+              'items, which Salesforce does not return'
             : `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
               `${outside.objectApiName} created under ${count(outside.parents)} ${object.objectApiName}`,
       );
@@ -2952,8 +2954,9 @@ function residualWords(
       return residual.message ?? 'kept as they are';
     case 'notBack':
       return (
-        'still in the recycle bin: ' +
-        (residual.message ?? 'Salesforce did not bring them back with what they went with')
+        'brought back without their items, gone for good' +
+        (residual.message !== undefined ? ` (${residual.message})` : '') +
+        ': Salesforce brings a deleted duplicate record set back without its items'
       );
   }
 }

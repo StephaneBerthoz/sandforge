@@ -1155,13 +1155,13 @@ describe('MemoryRemovalOrg', () => {
         cascadeChildComesBackAlone: false,
         childDeletedAloneThenParentLimbo: true,
         emptiedStillListed: true,
-        itemWithSetThenRecordLimbo: true,
+        itemOfDeletedSetLost: true,
       });
     });
 
-    it("keeps in the bin a duplicate rule's item that went with its set before the record it reports, unless told otherwise", async () => {
-      // G-Z03: the set went first with its items, the contacts next; the
-      // undo brought the contacts back, then the set, empty.
+    it('never brings back an item of a deleted duplicate record set, in any order, and brings it back with its record while the set stays', async () => {
+      // The probe (G-Z03): the set deleted before the contacts or after them,
+      // brought back first or last, came back empty each time.
       const SET = fakeId('0GK', 1);
       const ITEM = fakeId('0GL', 1);
       const children: Record<string, MemoryChild[]> = {
@@ -1174,8 +1174,12 @@ describe('MemoryRemovalOrg', () => {
           },
         ],
       };
-      const run = async (limbo: boolean): Promise<boolean> => {
-        const { org } = orgAt({ facts: { itemWithSetThenRecordLimbo: limbo } }, children);
+      const run = async (
+        lost: boolean,
+        deleted: readonly string[],
+        broughtBack: readonly string[],
+      ): Promise<{ item: boolean; answers: unknown }> => {
+        const { org } = orgAt({ facts: { itemOfDeletedSetLost: lost } }, children);
         org.add('Contact', { Id: CONTACT }, WHEN);
         org.add('DuplicateRecordSet', { Id: SET }, WHEN);
         org.add(
@@ -1183,15 +1187,35 @@ describe('MemoryRemovalOrg', () => {
           { Id: ITEM, RecordId: CONTACT, DuplicateRecordSetId: SET },
           WHEN,
         );
-        await org.destroy('DuplicateRecordSet', [SET]);
-        await org.destroy('Contact', [CONTACT]);
-        await org.undelete([CONTACT]);
-        await org.undelete([SET]);
-        return org.all('DuplicateRecordItem').some((row) => row.Id === ITEM);
+        for (const id of deleted) {
+          await org.destroy(id === SET ? 'DuplicateRecordSet' : 'Contact', [id]);
+        }
+        for (const id of broughtBack) await org.undelete([id]);
+        const answers = await org.undelete([ITEM]);
+        return { item: org.all('DuplicateRecordItem').some((row) => row.Id === ITEM), answers };
       };
 
-      expect(await run(true)).toBe(false);
-      expect(await run(false)).toBe(true);
+      for (const deleted of [
+        [SET, CONTACT],
+        [CONTACT, SET],
+      ]) {
+        for (const broughtBack of [
+          [SET, CONTACT],
+          [CONTACT, SET],
+        ]) {
+          const { item, answers } = await run(true, deleted, broughtBack);
+          expect(item).toBe(false);
+          expect(answers).toEqual([
+            expect.objectContaining({
+              success: false,
+              errors: [expect.objectContaining({ message: 'Entity is not in the recycle bin' })],
+            }),
+          ]);
+          expect((await run(false, deleted, broughtBack)).item).toBe(true);
+        }
+      }
+      // The set alive, the item goes with its contact and comes back with it.
+      expect((await run(true, [CONTACT], [CONTACT])).item).toBe(true);
     });
 
     it('gives every combination of the facts named, each once', () => {
