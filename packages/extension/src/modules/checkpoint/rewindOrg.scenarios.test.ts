@@ -2530,3 +2530,124 @@ describe('the records that come back with a record brought back', () => {
     paced(60_000),
   );
 });
+
+describe('what goes with a record the rewind deletes, in what it says it deleted', () => {
+  /** An account made since, three contacts and an opportunity with a product under it. */
+  async function madeUnderAnAccountMadeToo(): Promise<Taken> {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+    for (const n of [7, 8, 9]) {
+      t.org.add('Contact', {
+        Id: contact(n),
+        LastName: 'Made since',
+        AccountId: account(7),
+        LastModifiedById: COLLEAGUE,
+      });
+    }
+    t.org.add('Opportunity', {
+      Id: opportunity(7),
+      Name: 'Made since',
+      AccountId: account(7),
+      LastModifiedById: COLLEAGUE,
+    });
+    t.org.add('OpportunityLineItem', {
+      Id: line(7),
+      Quantity: 1,
+      OpportunityId: opportunity(7),
+      LastModifiedById: COLLEAGUE,
+    });
+    return t;
+  }
+
+  /** Per object, what the rewind set out to delete and deleted. */
+  const deletedOf = (result: ReturnType<typeof resultOf>) =>
+    result.deleted.map(({ objectApiName, planned, deleted }) => ({
+      objectApiName,
+      planned,
+      deleted,
+    }));
+
+  it('counts deleted what went to the recycle bin with the account it sent, as deep as it hangs, children first', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    const diff = await previewed(t);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.status).toBe('success');
+    expect(t.org.deletes.flatMap(({ ids }) => ids)).toEqual([account(7)]);
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([
+      contact(7),
+      contact(8),
+      contact(9),
+    ]);
+    const deleted = deletedOf(result);
+    expect(deleted).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Account', planned: 1, deleted: 1 },
+        { objectApiName: 'Contact', planned: 3, deleted: 3 },
+        { objectApiName: 'Opportunity', planned: 1, deleted: 1 },
+        { objectApiName: 'OpportunityLineItem', planned: 1, deleted: 1 },
+      ]),
+    );
+    expect(deleted).toHaveLength(4);
+    const at = (name: string): number => deleted.findIndex((row) => row.objectApiName === name);
+    expect(at('Contact')).toBeLessThan(at('Account'));
+    expect(at('OpportunityLineItem')).toBeLessThan(at('Account'));
+    expect(result.wentAlong).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Contact', count: 3 },
+        { objectApiName: 'Opportunity', count: 1 },
+        { objectApiName: 'OpportunityLineItem', count: 1 },
+      ]),
+    );
+    expect(result.wentAlong).toHaveLength(3);
+  });
+
+  it('counts nothing deleted of what hangs from an account the org refused: it stays with it', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    t.org.refuse.set(account(7), 'Held by a rule of the org');
+    const diff = await previewed(t);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(t.org.all('Contact').map((row) => row.Id)).toEqual(
+      expect.arrayContaining([contact(7), contact(8), contact(9)]),
+    );
+    expect(result.deleted.reduce((sum, object) => sum + object.deleted, 0)).toBe(0);
+    expect(result.deleted.find((row) => row.objectApiName === 'Account')).toMatchObject({
+      planned: 1,
+      refused: 1,
+    });
+    expect(result.wentAlong).toBeUndefined();
+  });
+
+  it('counts once what went with an account its second pass deleted, the first refused', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    t.org.refuse.set(account(7), 'Held by a rule of the org');
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, {
+        deps: {
+          onProgress: ({ phase, pass }) => {
+            if (phase === 'reading' && pass === 2) t.org.refuse.delete(account(7));
+          },
+        },
+      }),
+    );
+
+    expect(result.passes).toBe(2);
+    expect(t.org.all('Contact').map((row) => row.Id)).not.toContain(contact(7));
+    expect(deletedOf(result)).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Account', planned: 1, deleted: 1 },
+        { objectApiName: 'Contact', planned: 3, deleted: 3 },
+      ]),
+    );
+    expect(result.deleted.find((row) => row.objectApiName === 'Account')?.refused).toBe(0);
+    expect(result.wentAlong).toEqual(
+      expect.arrayContaining([{ objectApiName: 'Contact', count: 3 }]),
+    );
+  });
+});

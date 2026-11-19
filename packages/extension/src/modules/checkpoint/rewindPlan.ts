@@ -486,6 +486,14 @@ export interface RewindPlan {
    */
   goesAlong: RecordKeySet;
   /**
+   * {@link goesAlong}, per object, children first: a file of one line a
+   * record, its id and the record the plan hands the removal that it goes to
+   * the recycle bin with (`parent`), as deep as it hangs. What the removal
+   * left of those records keeps what hangs from them; the rest went with
+   * them, and the rewind counts it deleted.
+   */
+  along: Array<{ objectApiName: string; count: number; file: string }>;
+  /**
    * Of {@link goesAlong}, the records of an object a removal sets back to
    * Draft: an order past Draft would keep the parent it goes with.
    */
@@ -613,6 +621,11 @@ async function* rowsOf(file: string): AsyncGenerator<OrgRow> {
 /** Where a plan names the records it deletes before a record they point at, of one object. */
 function beforeParentFileOf(dir: string, objectApiName: string): string {
   return join(dir, `${sanitizeSoqlObjectName(objectApiName)}.beforeParent.ndjson`);
+}
+
+/** Where a plan names the records of one object that go with a record it deletes. */
+function alongFileOf(dir: string, objectApiName: string): string {
+  return join(dir, `${sanitizeSoqlObjectName(objectApiName)}.along.ndjson`);
 }
 
 /** The lines of one class of one object, written to the plan's folder as the preview writes them. */
@@ -1391,12 +1404,15 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const stranded = new RecordKeySet();
   const parentsFirst = [...objects].reverse();
   const beforeParent: RewindPlan['beforeParent'] = [];
+  const along: RewindPlan['along'] = [];
   for (const object of parentsFirst) {
     stopped();
     const name = object.objectApiName;
     const file = liveSpoolOf(freshDir, name);
     const pointing = new ClassLines(beforeParentFileOf(dir, name));
+    const going = new ClassLines(alongFileOf(dir, name));
     let sentBefore = 0;
+    let goingAlong = 0;
     for await (const row of rowsOf(file)) {
       const id = typeof row.Id === 'string' ? row.Id : '';
       if (!deleted(id)) continue;
@@ -1427,6 +1443,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
           goesAlong.add(id);
           rootOf.set(id.slice(0, 15), carrier);
           countsOf(name).withParentDeleted++;
+          await going.add({ Id: id, parent: carrier });
+          goingAlong++;
           continue;
         }
         stranded.add(id);
@@ -1456,6 +1474,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     if (sentBefore > 0) {
       beforeParent.push({ objectApiName: name, count: sentBefore, file: pointing.file });
     }
+    await going.flush();
+    if (goingAlong > 0) along.push({ objectApiName: name, count: goingAlong, file: going.file });
   }
 
   // ─── What the removal is handed, and the records its deletes hold ───
@@ -1661,6 +1681,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     bringBack: await back.finish(),
     carriers,
     goesAlong,
+    // Children first, as the removal deletes them.
+    along: along.reverse(),
     alongToDraft,
     recreate: await made.finish(),
     giveBack: { beforeDeletes: await first.finish(), afterDeletes: await last.finish(), heldBy },

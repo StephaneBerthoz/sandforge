@@ -114,9 +114,13 @@ describe('rewindOrg, on the memory org', () => {
     expect(result.passes).toBe(1);
     // The contact created since under an account created since goes with it,
     // never on its own: deleted alone first, it would stay in the bin for good.
+    // It is deleted all the same, and counted so, children first.
     expect(result.deleted.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
+      ['Contact', 1],
       ['Account', 2],
     ]);
+    expect(result.wentAlong).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(t.org.deletes.flatMap(({ ids }) => ids)).not.toContain(contact(4));
     expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([contact(4)]);
     expect(
       result.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]),
@@ -487,7 +491,12 @@ describe('rewindOrg: the second pass and the verify', () => {
         deleted,
         refused,
       ]),
-    ).toEqual([['Account', 2, 2, 0]]);
+      // The contact under the account the first pass was refused stayed with
+      // it, and went with it in the second: counted once.
+    ).toEqual([
+      ['Account', 2, 2, 0],
+      ['Contact', 1, 1, 0],
+    ]);
     expect(result.undeleted).toEqual([
       expect.objectContaining({ objectApiName: 'Account', planned: 1, undeleted: 1, refused: 0 }),
     ]);

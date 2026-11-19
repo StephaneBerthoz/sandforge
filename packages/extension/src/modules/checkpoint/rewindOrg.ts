@@ -1337,6 +1337,8 @@ class PassTally {
   readonly undeleted = new Map<string, SyncUndeleteObjectResult>();
   readonly recreated = new Map<string, RewindRecreatedObject>();
   readonly deleted = new Map<string, ForgeUndoObjectResult>();
+  /** Per object, of {@link deleted}, the records that went with a record the removal deleted. */
+  readonly wentAlong = new Map<string, number>();
   /** Per brick and object, the records it left: what the verify quotes its reasons for, and what the next pass retries. */
   readonly left: Record<Brick, Map<string, RecordKeySet>> = {
     restore: new Map(),
@@ -1458,6 +1460,52 @@ class PassTally {
       else this.deleted.set(from.objectApiName, structuredClone(worded));
     }
   }
+
+  /**
+   * Add what went with a record the removal deleted, never sent: deleted, and
+   * counted so, ahead of what the removal answered for the records it was
+   * handed, children first.
+   */
+  goneAlong(went: ReadonlyArray<{ objectApiName: string; count: number }>): void {
+    this.delete(
+      went.map(({ objectApiName, count }) => ({
+        objectApiName,
+        planned: count,
+        deleted: count,
+        alreadyGone: 0,
+        keptChanged: 0,
+        keptDependents: 0,
+        refused: 0,
+        heldBy: [],
+        unchecked: [],
+        reasons: [],
+      })),
+    );
+    for (const { objectApiName, count } of went) {
+      this.wentAlong.set(objectApiName, (this.wentAlong.get(objectApiName) ?? 0) + count);
+    }
+  }
+}
+
+/**
+ * Of what a plan names going with a record it hands the removal
+ * ({@link RewindPlan.along}), per object, the records whose record the
+ * removal did not leave: gone to the recycle bin with it. What hangs from a
+ * record it left stays with that record, the record's to say.
+ */
+async function wentAlongOf(
+  along: RewindPlan['along'],
+  left: (id: string) => boolean,
+): Promise<Array<{ objectApiName: string; count: number }>> {
+  const went: Array<{ objectApiName: string; count: number }> = [];
+  for (const { objectApiName, file } of along) {
+    let count = 0;
+    for await (const row of rowsOf(file)) {
+      if (typeof row.parent === 'string' && !left(row.parent)) count++;
+    }
+    if (count > 0) went.push({ objectApiName, count });
+  }
+  return went;
 }
 
 /** The records of `spools`, per object, by key. */
@@ -1516,6 +1564,8 @@ async function passesTally(
   restored: SyncRestoreObjectResult[];
   undeleted: SyncUndeleteObjectResult[];
   recreated: RewindRecreatedObject[];
+  /** Of {@link deleted}, per object, what went with a record the removal deleted. */
+  wentAlong: Array<{ objectApiName: string; count: number }>;
 }> {
   const first = firstPass.tally;
   const deleted = new Map(
@@ -1597,11 +1647,17 @@ async function passesTally(
     const result = restored.get(name);
     if (result) addReason(result.reasons, reason);
   }
+  // Each went once: what went in the first pass is no longer there for the second.
+  const wentAlong = new Map(first.wentAlong);
+  for (const [name, count] of second?.tally.wentAlong ?? []) {
+    wentAlong.set(name, (wentAlong.get(name) ?? 0) + count);
+  }
   return {
     deleted: [...deleted.values()],
     restored: [...restored.values()],
     undeleted: [...undeleted.values()],
     recreated: [...recreated.values()],
+    wentAlong: [...wentAlong].map(([objectApiName, count]) => ({ objectApiName, count })),
   };
 }
 
@@ -2307,7 +2363,7 @@ class Rewind {
       result: this.resultOf({
         rewindId: newFolderId('rw', this.now()),
         status: residual.length > 0 || unread.length > 0 ? 'partial' : 'success',
-        tally: { deleted: [], restored: [], undeleted: [], recreated: [] },
+        tally: { deleted: [], restored: [], undeleted: [], recreated: [], wentAlong: [] },
         residual,
         unread,
         passes: 1,
@@ -2682,6 +2738,7 @@ class Rewind {
       rewindId: parts.rewindId,
       status: parts.status,
       deleted: parts.tally.deleted,
+      ...(parts.tally.wentAlong.length > 0 ? { wentAlong: parts.tally.wentAlong } : {}),
       // An object whose every record given back was one brought back gave
       // nothing back that was changed since: its records are counted back.
       restored: parts.tally.restored.filter((object) => object.planned > 0),
@@ -2943,10 +3000,15 @@ class Rewind {
           ),
       });
       await journal.deleted(outcome);
-      tally.delete(outcome.objects);
       for await (const { objectApiName, ids } of outcome.left()) {
         tally.leftBy('removal', objectApiName, ids);
       }
+      // What went to the bin with a record the removal deleted is deleted
+      // too, never sent: left out, a rewind that sent an account said one
+      // record deleted where its contacts had gone with it.
+      const leftSets = [...tally.left.removal.values()];
+      tally.goneAlong(await wentAlongOf(plan.along, (id) => leftSets.some((left) => left.has(id))));
+      tally.delete(outcome.objects);
       if (outcome.cancelled) tally.cancelled = true;
       if (outcome.objects.some((object) => object.deleted > 0) || outcome.span) tally.wrote = true;
       stamp(outcome.stamps);

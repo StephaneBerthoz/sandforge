@@ -1993,6 +1993,35 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
   });
 
+  it('counts deleted what went to the recycle bin with the record it hangs from, and says how many went so', () => {
+    const removed = (objectApiName: string, deleted: number) => ({
+      objectApiName,
+      planned: deleted,
+      deleted,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    });
+    const result = resultOf({
+      deleted: [removed('Contact', 3), removed('Account', 1)],
+      wentAlong: [{ objectApiName: 'Contact', count: 3 }],
+    });
+
+    expect(rewindLines('DEV-SB', checkpoint, result)).toContain(
+      '  deleted 4 record(s) added since the checkpoint — created, or brought back from the recycle bin they were in when it was taken —, 3 of them with the record they hang from (in the recycle bin for up to 15 days)',
+    );
+    const json = resultJson('rewind', 'DEV-SB', checkpoint, result);
+    expect(json.deleted).toEqual({ planned: 4, done: 4, left: 0 });
+    expect(json.objects).toEqual([
+      { object: 'Contact', deleted: 3, givenBack: 0, broughtBack: 0, refused: 0 },
+      { object: 'Account', deleted: 1, givenBack: 0, broughtBack: 0, refused: 0 },
+    ]);
+  });
+
   it('names a duplicate record set it set out to delete and left, which no read again compares', () => {
     const lines = rewindLines(
       'DEV-SB',

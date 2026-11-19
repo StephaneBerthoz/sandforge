@@ -1717,11 +1717,12 @@ export interface RewindResult {
    */
   carriedAlone?: Array<{ objectApiName: string; count: number }>;
   /**
-   * An undo's alone: of what it sent to the recycle bin, per object, the
-   * records that went there with a record it deleted, as they had come back
-   * with it — counted in `deleted`, never sent on their own: a contact with
-   * its account, a feed or a history with its record. Absent when there is
-   * none.
+   * Of what it sent to the recycle bin, per object, the records that went
+   * there with a record it deleted — counted in `deleted`, never sent on
+   * their own: of a rewind, a contact created since with the account created
+   * since it hangs from; of an undo, what had come back with a record, a
+   * contact with its account, a feed or a history with its record. Absent
+   * when there is none.
    */
   wentAlong?: Array<{ objectApiName: string; count: number }>;
   /** What still differs once it read the org again. */

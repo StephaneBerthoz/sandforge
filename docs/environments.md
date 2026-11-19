@@ -1208,13 +1208,13 @@ destroy --rewind: rewinding pool-1 to checkpoint ck-20261025-090130-a1b2
 checkpoint ck-20261025-090130-a1b2: deleted from this machine, the environment it was taken of is taken back
 every record of case-flow is taken back from pool-1, with what anyone changed since its first apply: the state keeps it as destroyed, and the next apply creates it again
 
-  rewind to ck-20261025-090130-a1b2: exit 0, success  4 deleted, 0 given back, 0 brought back
+  rewind to ck-20261025-090130-a1b2: exit 0, success  10 deleted, 0 given back, 0 brought back
   checkpoint ck-20261025-090130-a1b2 deleted
 no undo: the environment’s checkpoints are deleted with it, the journal of this rewind among them: a destroy is undone by applying again
 destroy --rewind: success; state serial 7
 ```
 
-The three accounts of the environment and the one the test created are deleted, and the six contacts go with their accounts, as Salesforce deletes them.
+The three accounts of the environment and the one the test created are deleted, and the six contacts go with their accounts, as Salesforce deletes them: ten deleted.
 
 `destroy --rewind` returns the org to the checkpoint taken before the first apply: **everyone's** changes since are taken back, not only the environment's records. On a CI org of its own, the whole destroy; on a shared sandbox, the wrong one, and its question says it: `Type pool-1 to rewind it to before case-flow was first applied: it deletes … — whoever made these changes, last changed by …; the environment's checkpoints are then deleted, and this is not undone:`. Once it ended `0`, every resource of the state is destroyed, and the environment's checkpoints are deleted, the rewind's journal with them: it is not undone, but by applying again. `--include-changed` and `--sweep` belong to a destroy by removal, and are refused beside `--rewind`.
 

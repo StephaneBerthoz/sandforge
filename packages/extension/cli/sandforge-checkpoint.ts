@@ -3023,10 +3023,14 @@ export function rewindLines(
     );
   }
   if (tallies.deleted.done > 0) {
+    // What went with the record it hangs from was never sent: counted apart,
+    // a rewind that sent 24 deletes says why 1,024 records are in the bin.
+    const along = sumOf(result.wentAlong ?? [], (o) => o.count);
     lines.push(
       `  deleted ${count(tallies.deleted.done)} record(s) added since the checkpoint — created, ` +
-        'or brought back from the recycle bin they were in when it was taken — (in the recycle ' +
-        'bin for up to 15 days)',
+        'or brought back from the recycle bin they were in when it was taken —' +
+        (along > 0 ? `, ${count(along)} of them with the record they hang from` : '') +
+        ' (in the recycle bin for up to 15 days)',
     );
   }
   if (tallies.givenBack.done > 0) {
