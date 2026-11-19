@@ -5,6 +5,43 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.84.0] - 2026-11-19
+
+SandForge opens on Home; the command line deploys from a comparison; gates count what your last runs wrote and sent; rewinds and removals take the duplicate record sets your org's rules made.
+
+### Added
+
+- **SandForge**: a window opens on the side panel and Home, with What's New after an upgrade; the Open on startup setting turns it off.
+- **Seed, Autopilot, Frozen Dataset**: Copy for the target's admin gives the deploy, Read or Create an object needs, as Forge's Review does.
+- **Autopilot**: a run whose reads take more of the source's daily API requests than it has left is refused before its first write.
+- **Seed**: a seed no longer kept on this machine, its records still in its org, names what it left and a line that lists them for cleanup.
+- **Frozen Dataset**: the report, the Load tab and the command line say per object the records sent again for a record lock.
+- **Command line and MCP**: `sandforge compare --deploy` deploys as Deploy from Diff does, once the target's alias is typed, never to production; an environment's plan notes a seed after a replay.
+
+### Changed
+
+- **Forge, Seed**: their lists of runs are headed History, as in Sync and Automation; Monitor's Live Operations stops a run with Stop the run.
+- **Forge**: parses 45 kB less before it paints; Review's Execute reads Copy the sample once a sample is chosen, and says its reads are an estimate.
+- **Mute**: a user who cannot assign permission sets is no longer offered Mute: a line says why.
+- **Checkpoints**: a rewind's preview and confirmation say an undo brings the duplicate record sets it deletes back without their items.
+
+### Fixed
+
+- **Forge**: Retry of a sample run writes the same plan again; ALL with a parent filter leaves aside, never fails, records naming a parent outside it.
+- **Forge**: the panel's gate counts what a clone sent the target before writing; History takes again the duplicate record sets a removal kept.
+- **Forge**: relations the platform writes with the run's records are no longer said already in the target; a dry run counts copies of a unique value linked.
+- **Forge**: a sample no longer weighs a price the run replaces; a sample refused for unread storage or its size says so in Review's words, with counts.
+- **Storage gates**: Forge, Seed and Autopilot take off what this machine's runs wrote that Salesforce has not counted yet, and the half MB it rounds.
+- **Checkpoints**: a rewind deletes the duplicate record sets the rules made of what it deletes, counts what goes with its parent, and prices its mute.
+- **Checkpoints**: an undo counts what comes back with its parent; a limited rewind's estimate reads what its removal reads.
+- **Seed, Sync, Frozen Dataset**: removing a run reads, names and mutes what fires on the duplicate record sets it deletes, and counts them.
+- **Autopilot**: its second pass sends again a record refused for a lock; the Grappe panel reports each wave; Fit to storage bounds the requests.
+- **Sync**: the API estimate counts column groups and lookup passes; `sandforge sync` names what the target runs before it writes.
+- **Removals**: a record a trigger refused for a lock its update met is sent again, as an `UNABLE_TO_LOCK_ROW`; API refusals say lock resends come on top.
+- **Command line**: Ctrl-C under npx prints the summary; Windows lines quote paths cmd.exe reads; `sandforge compare` marks what only the source holds `+`.
+- **Back into service, Compare, Cleanup**: the handoff note says a users run taken back; Compare reads at 4.5:1 outside VS Code; a greyed Delete says why.
+- **Local files**: sample and root plans go once a day old as SandForge opens; the docs say what "your user alone" means on Windows.
+
 ## [1.83.0] - 2026-11-18
 
 After a sandbox refresh, Back into service brings it back step by step from the panel; the launcher groups modules by what they are for, and every page's menus were reworked.
