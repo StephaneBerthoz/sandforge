@@ -26,10 +26,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFetchVerdict } from './public-link-verdict.mjs';
+import { createFetchVerdict, pathOnBranch } from './public-link-verdict.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LOCAL_ONLY = process.argv.includes('--local');
+
+/**
+ * On a pull request, the branch it merges into. GitHub sets it for pull
+ * request runs only, so a release, a push to master and a run on the
+ * maintainer's machine leave it empty.
+ */
+const BASE_BRANCH = process.env.GITHUB_BASE_REF || null;
 
 /**
  * READMEs to scan, with the directory their relative links resolve against.
@@ -130,6 +137,25 @@ let checked = 0;
 const unfetchable = (url) =>
   url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('data:');
 
+/** `owner/name` of the repository the manifest names, or null. */
+const REPOSITORY =
+  /^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(
+    JSON.parse(readFileSync(join(ROOT, MANIFEST), 'utf-8')).repository?.url ?? '',
+  )?.[1] ?? null;
+
+/**
+ * On a pull request, a link into the branch it merges into is read in the
+ * checked-out tree: GitHub checks a pull request out as its merge into that
+ * branch, so the tree holds what the branch will once it merges. Asked of
+ * GitHub instead, every page the pull request adds answered 404 and failed the
+ * Package job, which went green once the same commit was on master; and a page
+ * it removes would pass. Anywhere else the link is asked of GitHub, so a
+ * release cannot ship a link to a page not yet pushed.
+ */
+const treePathOf = (url) =>
+  BASE_BRANCH && REPOSITORY ? pathOnBranch(url, REPOSITORY, BASE_BRANCH) : null;
+let readInTree = 0;
+
 for (const { file, base } of TARGETS) {
   const path = join(ROOT, file);
   if (!existsSync(path)) continue;
@@ -145,6 +171,16 @@ for (const { file, base } of TARGETS) {
 
       if (url.startsWith('http://') || url.startsWith('https://')) {
         if (LOCAL_ONLY) continue;
+        const inTree = treePathOf(url);
+        if (inTree !== null) {
+          readInTree += 1;
+          if (!existsSync(join(ROOT, inTree))) {
+            failures.push(
+              `${file}: ${url} → not in this pull request's tree (a visitor sees a broken ${kind === 'image' ? 'image' : 'link'} once it merges)`,
+            );
+          }
+          continue;
+        }
         if (!verdicts.has(url)) await wait(120); // spacing is what avoids the 429
         const { ok, status, unverified: unsure } = await isReachable(url);
         if (!ok) {
@@ -194,7 +230,11 @@ if (unverified.length > 0) {
   console.warn(`Public URLs: ${unverified.length} answered only "ask again later" (not failed)`);
   for (const line of unverified) console.warn(`  ⚠ ${line}`);
 }
-console.log(`Public URLs: ${checked - unverified.length} reachable`);
+const fromTree =
+  readInTree > 0
+    ? ` (${readInTree} ${readInTree === 1 ? 'link' : 'links'} into ${BASE_BRANCH} read in this pull request's tree)`
+    : '';
+console.log(`Public URLs: ${checked - unverified.length} reachable${fromTree}`);
 
 // Exit explicitly. The failure path above already did, so only a PASSING run
 // hung — the worst possible shape: the gate printed its verdict and then held

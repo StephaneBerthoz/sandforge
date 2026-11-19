@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFetchVerdict } from './public-link-verdict.mjs';
+import { createFetchVerdict, pathOnBranch } from './public-link-verdict.mjs';
 
 /**
  * A fetch that answers each call with the next status of `script`, by
@@ -114,4 +114,45 @@ test('asks the HEAD at once when the budget leaves no time to wait', async () =>
 
   assert.deepEqual(await verdict('https://example.test/doc.md'), { ok: true, status: 200 });
   assert.deepEqual(calls, ['GET', 'HEAD']);
+});
+
+test('names the path a link into a branch of the repository points at, in each of its forms', () => {
+  const on = (url) => pathOnBranch(url, 'Owner/repo', 'master');
+
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/faq.md'), 'docs/faq.md');
+  assert.equal(on('https://github.com/Owner/repo/tree/master/ci-examples'), 'ci-examples');
+  assert.equal(on('https://github.com/Owner/repo/tree/master/ci-examples/'), 'ci-examples');
+  assert.equal(
+    on('https://raw.githubusercontent.com/Owner/repo/master/assets/screenshots/forge.png'),
+    'assets/screenshots/forge.png',
+  );
+  assert.equal(on('https://github.com/Owner/repo/raw/master/assets/icon.png'), 'assets/icon.png');
+});
+
+test('reads the path without its anchor or query, decoded, and the owner in any case', () => {
+  const on = (url) => pathOnBranch(url, 'Owner/repo', 'master');
+
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/faq.md#undo'), 'docs/faq.md');
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/faq.md?plain=1'), 'docs/faq.md');
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/a%20b.md'), 'docs/a b.md');
+  assert.equal(on('https://github.com/owner/REPO/blob/master/docs/faq.md'), 'docs/faq.md');
+});
+
+test('names no path for another branch, another repository, or a page that is not a file', () => {
+  const on = (url) => pathOnBranch(url, 'Owner/repo', 'master');
+
+  assert.equal(on('https://github.com/Owner/repo/blob/release/docs/faq.md'), null);
+  assert.equal(on('https://github.com/Owner/repo/blob/master-old/docs/faq.md'), null);
+  assert.equal(on('https://github.com/Other/repo/blob/master/docs/faq.md'), null);
+  assert.equal(on('https://github.com/Owner/repository/blob/master/docs/faq.md'), null);
+  assert.equal(on('https://github.com/Owner/repo/issues'), null);
+  assert.equal(on('https://github.com/Owner/repo/blob/master/'), null);
+  assert.equal(on('https://example.test/Owner/repo/blob/master/docs/faq.md'), null);
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/%2E%2E/%2E%2E/x.md'), null);
+  assert.equal(on('https://github.com/Owner/repo/blob/master/docs/..%2F..%2Fx.md'), null);
+});
+
+test('reads a base branch whose name holds a slash', () => {
+  const url = 'https://github.com/Owner/repo/blob/release/1.x/docs/faq.md';
+  assert.equal(pathOnBranch(url, 'Owner/repo', 'release/1.x'), 'docs/faq.md');
 });
