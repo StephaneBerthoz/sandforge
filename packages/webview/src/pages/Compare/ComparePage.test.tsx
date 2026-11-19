@@ -573,6 +573,39 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('page-tab-diff').getAttribute('aria-selected')).toBe('true');
   });
 
+  it('shows Org overview right under the two orgs it reads, before any comparison, the categories kept for Differences', () => {
+    // Before a first run the eighteen categories stayed open above it, and
+    // what it read began under them, about a thousand pixels down.
+    render(<ComparePage />);
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    fireEvent.click(screen.getByTestId('cat-ApexClass'));
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
+
+    expect(screen.getByTestId('org-selector')).toBeDefined();
+    expect(screen.queryByTestId('category-selector')).toBeNull();
+    expect(screen.queryByTestId('compare-include-managed')).toBeNull();
+    expect(screen.queryByTestId('compare-config-summary')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('page-tab-diff'));
+    expect(screen.getByTestId('cat-ApexClass').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('compare-include-managed')).toBeDefined();
+  });
+
+  it('says on Org overview where the categories a comparison waits for are picked', () => {
+    render(<ComparePage />);
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
+
+    expect(screen.getByTestId('compare-run-needs').textContent).toBe(
+      'Pick at least one category on Differences',
+    );
+    expect(screen.getByTestId('run-compare-btn')).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByTestId('page-tab-diff'));
+    expect(screen.getByTestId('compare-run-needs').textContent).toBe('Pick at least one category');
+  });
+
   it('keeps the risk score and the counts of a comparison on Differences, off Org overview', () => {
     mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
     render(<ComparePage />);

@@ -691,7 +691,8 @@
     "objects": "Objetos",
     "runNeeds": {
       "orgs": "Escolha uma org de origem e uma org de destino diferente",
-      "categories": "Escolha pelo menos uma categoria"
+      "categories": "Escolha pelo menos uma categoria",
+      "categoriesOnTab": "Escolha pelo menos uma categoria em {{tab}}"
     },
     "targetOnlyLine_one": "{{count}} componente só no destino: uma implantação o deixa lá; removê-lo à mão pode causar perda de dados.",
     "targetOnlyLine_other": "{{count}} componentes só no destino: uma implantação os deixa lá; removê-los à mão pode causar perda de dados."

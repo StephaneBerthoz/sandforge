@@ -674,6 +674,28 @@ test.describe('Compare panel — Org overview, with no comparison run', () => {
     expect(await sentTypes(page)).not.toContain('compare:snapshots');
   });
 
+  test('starts right under the two orgs it reads, the categories kept for Differences', async ({
+    page,
+  }) => {
+    // Before a first run the eighteen categories stayed open above it, and
+    // what it read began about a thousand pixels down.
+    await page.getByTestId('cat-ApexClass').click();
+    await openOverview(page);
+    await expect(page.getByTestId('compare-overview')).toBeVisible();
+    await expect(page.getByTestId('category-selector')).toHaveCount(0);
+    await expect(page.getByTestId('compare-run-needs')).toHaveCount(0);
+
+    const ribbon = await page.getByTestId('org-selector').boundingBox();
+    const overview = await page.getByTestId('compare-overview').boundingBox();
+    expect(ribbon).not.toBeNull();
+    expect(overview).not.toBeNull();
+    // Only the tab bar lies between them.
+    expect((overview?.y ?? 0) - ((ribbon?.y ?? 0) + (ribbon?.height ?? 0))).toBeLessThan(120);
+
+    await page.getByTestId('page-tab-diff').click();
+    await expect(page.getByTestId('cat-ApexClass')).toHaveAttribute('aria-checked', 'true');
+  });
+
   test('reads the objects, permission sets and profiles, and settings of both orgs at once', async ({
     page,
   }) => {

@@ -691,7 +691,8 @@
     "objects": "Objets",
     "runNeeds": {
       "orgs": "Choisissez une org source et une org cible différente",
-      "categories": "Choisissez au moins une catégorie"
+      "categories": "Choisissez au moins une catégorie",
+      "categoriesOnTab": "Choisissez au moins une catégorie dans l'onglet {{tab}}"
     },
     "targetOnlyLine_one": "{{count}} composant seulement dans la cible : un déploiement le laisse ; le retirer à la main peut faire perdre des données.",
     "targetOnlyLine_other": "{{count}} composants seulement dans la cible : un déploiement les laisse ; les retirer à la main peut faire perdre des données."

@@ -691,7 +691,8 @@
     "objects": "Objects",
     "runNeeds": {
       "orgs": "Pick a source and a different target org",
-      "categories": "Pick at least one category"
+      "categories": "Pick at least one category",
+      "categoriesOnTab": "Pick at least one category on {{tab}}"
     },
     "targetOnlyLine_one": "{{count}} component only in the target: a deployment leaves it; removing it by hand may lose data.",
     "targetOnlyLine_other": "{{count}} components only in the target: a deployment leaves them; removing them by hand may lose data."

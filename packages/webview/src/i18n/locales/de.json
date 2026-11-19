@@ -691,7 +691,8 @@
     "objects": "Objekte",
     "runNeeds": {
       "orgs": "Wählen Sie eine Quell-Org und eine andere Ziel-Org",
-      "categories": "Wählen Sie mindestens eine Kategorie"
+      "categories": "Wählen Sie mindestens eine Kategorie",
+      "categoriesOnTab": "Wählen Sie unter {{tab}} mindestens eine Kategorie"
     },
     "targetOnlyLine_one": "{{count}} Komponente nur im Ziel: Eine Bereitstellung lässt sie dort; sie von Hand zu entfernen, kann Daten kosten.",
     "targetOnlyLine_other": "{{count}} Komponenten nur im Ziel: Eine Bereitstellung lässt sie dort; sie von Hand zu entfernen, kann Daten kosten."

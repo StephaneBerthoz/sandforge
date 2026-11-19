@@ -691,7 +691,8 @@
     "objects": "Objetos",
     "runNeeds": {
       "orgs": "Elija una org de origen y una org de destino distinta",
-      "categories": "Elija al menos una categoría"
+      "categories": "Elija al menos una categoría",
+      "categoriesOnTab": "Elija al menos una categoría en {{tab}}"
     },
     "targetOnlyLine_one": "{{count}} componente solo en el destino: un despliegue lo deja allí; quitarlo a mano puede hacer perder datos.",
     "targetOnlyLine_other": "{{count}} componentes solo en el destino: un despliegue los deja allí; quitarlos a mano puede hacer perder datos."

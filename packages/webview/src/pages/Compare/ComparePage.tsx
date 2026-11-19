@@ -156,6 +156,13 @@ export const ComparePage: React.FC = () => {
    */
   const folded = !!result && editingFor !== result.configId && canRun;
 
+  /**
+   * Org overview reads the two orgs alone. Before a first run the categories
+   * stayed open above it, and what it read began about a thousand pixels
+   * down: they wait on the other tabs, as picked.
+   */
+  const onOverview = activeTab === 'overview';
+
   // Edit hands the focus to the source picker it unfolds: the button it was
   // on goes with the folded line.
   useEffect(() => {
@@ -246,7 +253,9 @@ export const ComparePage: React.FC = () => {
                 className="text-right text-xs text-(--sf-text-secondary)"
                 data-testid="compare-run-needs"
               >
-                {t(`compare.runNeeds.${runNeeds}`)}
+                {runNeeds === 'categories' && onOverview
+                  ? t('compare.runNeeds.categoriesOnTab', { tab: t('compare.diff') })
+                  : t(`compare.runNeeds.${runNeeds}`)}
               </p>
             )}
           </div>
@@ -299,18 +308,22 @@ export const ComparePage: React.FC = () => {
             onTargetChange={setTargetOrgId}
           />
 
-          {/* Category selection */}
-          <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />
+          {/* Category selection, which only a comparison reads */}
+          {!onOverview && (
+            <>
+              <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />
 
-          <label className="flex items-center gap-2 text-xs text-text-secondary">
-            <input
-              type="checkbox"
-              checked={includeManaged}
-              onChange={(e) => setIncludeManaged(e.target.checked)}
-              data-testid="compare-include-managed"
-            />
-            {t('compare.includeManaged')}
-          </label>
+              <label className="flex items-center gap-2 text-xs text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={includeManaged}
+                  onChange={(e) => setIncludeManaged(e.target.checked)}
+                  data-testid="compare-include-managed"
+                />
+                {t('compare.includeManaged')}
+              </label>
+            </>
+          )}
         </div>
       )}
 
