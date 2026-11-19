@@ -1628,7 +1628,8 @@ export type RewindResidualReason =
   | 'refused'
   | 'notInBin'
   | 'goneForGood'
-  | 'kept';
+  | 'kept'
+  | 'notBack';
 
 /** Records of one object that still differ, for one reason. */
 export interface RewindResidual {
@@ -1813,6 +1814,12 @@ export interface RewindSelectionAct {
   /** Whether the object is one of those picked. */
   picked: boolean;
   toDelete: number;
+  /**
+   * Of {@link toDelete}, the records that go with a parent it deletes, never
+   * sent on their own: what its estimate does not count sent. Absent from a
+   * plan made before it was told.
+   */
+  withParent?: number;
   toGiveBack: number;
   toBringBack: number;
   toRecreate: number;

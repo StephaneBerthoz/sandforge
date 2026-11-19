@@ -125,6 +125,7 @@ import {
   type SpooledUndoPlans,
 } from './rewindJournal.js';
 import { SNAPSHOT_CHUNK_IDS } from './snapshotIndex.js';
+import { DUPLICATE_SET_OBJECT, itemsNotBack } from './rewindDuplicateSets.js';
 import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 
 /** What an undo is given. */
@@ -175,6 +176,15 @@ export interface UndoResidual {
   ids: string[];
   /** Who last changed them, by User Id, and how many each. */
   by: Record<string, number>;
+  /**
+   * Set for records the org did not bring back with what they went to the
+   * recycle bin with (`notBack`), which no one changed: the items of a
+   * duplicate record set the undo brought back, said with that set. Absent,
+   * records given back that still differ.
+   */
+  reason?: 'notBack';
+  /** What they went with, for {@link reason}. */
+  message?: string;
 }
 
 /** What an undo did. */
@@ -546,6 +556,48 @@ async function valuesBefore(
     }
   }
   return before;
+}
+
+/**
+ * Of the duplicate record sets the undo set out to bring back, those it did,
+ * read again for the items still in the recycle bin: said as records it did
+ * not bring back, with the sets they went with. None read when it brought
+ * back no set; a read that fails is said in `notes`.
+ */
+async function setsBackShort(
+  org: RemovalOrg,
+  bringBack: IdSpool,
+  left: ReadonlyMap<string, readonly string[]>,
+  notes: string[],
+): Promise<UndoResidual | undefined> {
+  const stayed = new RecordKeySet();
+  for (const id of left.get(DUPLICATE_SET_OBJECT) ?? []) stayed.add(id);
+  const back: string[] = [];
+  for await (const page of bringBack.pages(DUPLICATE_SET_OBJECT)) {
+    for (const id of page) if (!stayed.has(id)) back.push(id);
+  }
+  if (back.length === 0) return undefined;
+  let found: { sets: number; items: string[] };
+  try {
+    found = await itemsNotBack(org, back);
+  } catch (err: unknown) {
+    notes.push(
+      `Whether the ${DUPLICATE_SET_OBJECT} records the undo brought back came back with their ` +
+        `items could not be read (${extractErrorMessage(err)}).`,
+    );
+    return undefined;
+  }
+  if (found.items.length === 0) return undefined;
+  return {
+    objectApiName: 'DuplicateRecordItem',
+    count: found.items.length,
+    ids: found.items.slice(0, RESIDUAL_IDS_KEPT),
+    by: {},
+    reason: 'notBack',
+    message:
+      `of ${found.sets} ${DUPLICATE_SET_OBJECT} the undo brought back, which came back ` +
+      'without them',
+  };
 }
 
 /**
@@ -1128,6 +1180,13 @@ async function undoFrom(
     const notGiven = new RecordKeySet();
     for (const id of restored.left) notGiven.add(id);
     residual = await stillDiffering(org, plans, valuesBefore, notGiven, notes);
+  }
+  // The duplicate record sets it brought back, read again with their items:
+  // run for real, an undo brought a set back empty, its items still deleted,
+  // and said the org was back as it was.
+  if (status !== 'cancelled') {
+    const short = await setsBackShort(org, plans.bringBack, undeleteLeft, notes);
+    if (short) residual.push(short);
   }
   if (residual.length > 0 && status === 'success') status = 'partial';
   if ((files?.linksRefused ?? 0) > 0 && status === 'success') status = 'partial';

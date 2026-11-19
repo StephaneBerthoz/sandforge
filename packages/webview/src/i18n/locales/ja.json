@@ -8040,6 +8040,10 @@
         "kept": {
           "title": "意図的に残したもの",
           "line_other": "{{object}}: 巻き戻しで残したレコード {{formatted}} 件"
+        },
+        "notBack": {
+          "title": "戻らなかったもの",
+          "line_other": "{{object}}: ごみ箱に残っている {{formatted}} 件のレコード。Salesforce は一緒に削除されたものと共に戻しませんでした"
         }
       },
       "undeleted": {

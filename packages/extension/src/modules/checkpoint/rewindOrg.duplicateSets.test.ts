@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { previewCheckpoint } from './previewCheckpoint.js';
+import { undoCheckpoint } from './undoCheckpoint.js';
 import {
   account,
   AUTOMATED_PROCESS,
@@ -20,7 +21,6 @@ import {
   SINCE,
   STAMP_FIELDS,
   taken,
-  undone,
   writable,
   type Taken,
 } from '../../test/rewindTestOrg.js';
@@ -245,6 +245,31 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
     expect(withSet.estimated - without.estimated).toBe(withSet.sent - without.sent);
   });
 
+  it('estimates a rewind of contacts alone what it sends, the contacts of an account it leaves sent on their own', async () => {
+    // Run for real, a rewind limited to Contact of 1,000 contacts made under
+    // accounts made since was estimated 25 requests and sent 89: its estimate
+    // counted the contacts gone with their accounts, which it does not delete.
+    const t: Taken = await taken(baseRecords, duplicateRuleOrg());
+    clock.now = SINCE - 1_000;
+    t.org.add('Account', { Id: account(9), Name: 'Made by the run' });
+    clock.now = SINCE;
+    for (let n = 0; n < 450; n++) {
+      t.org.add('Contact', { Id: id('003', 100 + n), LastName: 'Made', AccountId: account(9) });
+    }
+    clock.now = PREVIEWED;
+    const asked = { objects: ['Contact'], acceptOutside: true };
+    const preview = await previewCheckpoint(
+      { org: t.org, store: t.store },
+      { ...request(t), ...asked },
+    );
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+
+    const result = resultOf(await rewound(t, preview.diff.previewId, { request: asked }));
+
+    expect(result.deleted.find((object) => object.objectApiName === 'Contact')?.deleted).toBe(450);
+    expect(Math.abs(preview.estimate.apiRequests - result.apiRequests.used)).toBeLessThanOrEqual(2);
+  });
+
   it('leaves the set, said, when its user may not delete such records, and deletes the records all the same', async () => {
     const { t, diff } = await afterTheRun();
     const describe = t.org.describe.bind(t.org);
@@ -289,15 +314,38 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
     });
   });
 
-  it('brings the set back with its items once the rewind is undone', async () => {
+  it('says the items an undo did not bring back with their set, and never that the org is back as it was', async () => {
+    // Run for real: the undo brought the contacts back, then the set, empty,
+    // its two items still deleted, and said the org was back as it was.
     const { t, diff } = await afterTheRun();
-    const result = resultOf(await rewound(t, diff.previewId, { request: { acceptOutside: true } }));
+    const rewind = resultOf(await rewound(t, diff.previewId, { request: { acceptOutside: true } }));
+    const read = await t.store.read(t.checkpoint.checkpointId);
+    if (!read?.checkpoint) throw new Error('the checkpoint is gone');
+    clock.now += 60_000;
 
-    const undo = await undone(t, result.rewindId);
+    const undo = await undoCheckpoint(
+      { org: t.org, undelete: (ids) => t.org.undelete(ids), store: t.store },
+      {
+        ...request(t),
+        checkpoint: read.checkpoint,
+        rewindId: rewind.rewindId,
+        acceptAutomation: false,
+      },
+    );
 
-    expect(undo.status).toBe('success');
+    if (!undo.undone) throw new Error(undo.refusal.message);
     expect(liveIds(t, 'Contact')).toEqual(expect.arrayContaining([contact(5), contact(6)]));
     expect(liveIds(t, SET)).toEqual([set(1)]);
-    expect(liveIds(t, ITEM)).toEqual([item(1), item(2)]);
+    expect(liveIds(t, ITEM)).toEqual([]);
+    expect(undo.result.status).toBe('partial');
+    expect(undo.result.residual).toEqual([
+      {
+        objectApiName: ITEM,
+        reason: 'notBack',
+        count: 2,
+        ids: [item(1), item(2)],
+        message: 'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+      },
+    ]);
   });
 });

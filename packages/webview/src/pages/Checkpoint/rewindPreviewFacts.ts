@@ -550,6 +550,7 @@ const RESIDUAL_RANK: Readonly<Record<RewindResidualReason, number>> = {
   refused: 4,
   kept: 5,
   goneForGood: 6,
+  notBack: 7,
 };
 
 /** Every reason, in the order the result tells them: one missing from the rank fails to compile. */

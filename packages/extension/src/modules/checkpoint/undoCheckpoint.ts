@@ -364,6 +364,15 @@ function residualOf(
   owners: ReadonlySet<string>,
 ): RewindResidual[] {
   return residual.map((object) => {
+    if (object.reason === 'notBack') {
+      return {
+        objectApiName: object.objectApiName,
+        reason: 'notBack',
+        count: object.count,
+        ids: [...object.ids],
+        ...(object.message !== undefined ? { message: object.message } : {}),
+      };
+    }
     const others = Object.keys(object.by).filter((by) => !owners.has(keyOf(by)));
     if (others.length === 0) {
       return {

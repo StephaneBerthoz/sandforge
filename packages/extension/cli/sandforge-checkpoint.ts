@@ -2950,6 +2950,11 @@ function residualWords(
       );
     case 'kept':
       return residual.message ?? 'kept as they are';
+    case 'notBack':
+      return (
+        'still in the recycle bin: ' +
+        (residual.message ?? 'Salesforce did not bring them back with what they went with')
+      );
   }
 }
 

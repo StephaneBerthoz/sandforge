@@ -8607,6 +8607,11 @@
           "title": "Mantenidos a propósito",
           "line_one": "{{object}}: {{formatted}} registro que el retroceso mantuvo",
           "line_other": "{{object}}: {{formatted}} registros que el retroceso mantuvo"
+        },
+        "notBack": {
+          "title": "No recuperados",
+          "line_one": "{{object}}: {{formatted}} registro aún en la papelera de reciclaje: Salesforce no lo recuperó con aquello con lo que se fue",
+          "line_other": "{{object}}: {{formatted}} registros aún en la papelera de reciclaje: Salesforce no los recuperó con aquello con lo que se fueron"
         }
       },
       "undeleted": {

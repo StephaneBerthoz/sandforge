@@ -106,6 +106,9 @@ export interface MemoryChild {
   restrictedDelete?: boolean;
 }
 
+/** A duplicate rule's report of a record, in a set the org deletes it with. */
+const DUPLICATE_ITEM = 'DuplicateRecordItem';
+
 /** The user the session writes as. */
 export const MEMORY_ORG_USER = '005000000000001AAA';
 
@@ -183,6 +186,16 @@ export interface MemoryOrgFacts {
    * the org left it a day later.
    */
   emptiedStillListed: boolean;
+  /**
+   * A duplicate rule's item deleted in cascade with its set, then the record
+   * it reports deleted after it, stays `IsDeleted` in the bin and comes back
+   * with neither. Run for real (gate G-Z03, a scratch org, 19/11): two items
+   * went to the bin with their set, the contacts they reported were deleted
+   * next, and the undo brought the contacts back, then the set, empty, its
+   * items still deleted. Seen in that order of the undo; the other is not
+   * probed. Off: the item comes back with its set.
+   */
+  itemWithSetThenRecordLimbo: boolean;
 }
 
 /** The facts as the live probes saw them. */
@@ -197,6 +210,7 @@ export const MEMORY_ORG_FACTS: Readonly<MemoryOrgFacts> = Object.freeze({
   cascadeChildComesBackAlone: false,
   childDeletedAloneThenParentLimbo: true,
   emptiedStillListed: true,
+  itemWithSetThenRecordLimbo: true,
 });
 
 /**
@@ -1177,6 +1191,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
         }
         this.strandPointingAt({ objectApiName: object, row });
       }
+      this.strandUnder({ objectApiName: object, row }, goes);
       this.table(object).delete(key);
       row.IsDeleted = true;
       if (this.facts.deleteStamps) this.restamp(row, by);
@@ -1275,6 +1290,36 @@ export class MemoryRemovalOrg implements RemovalOrg {
         (child) => child.childSObject === held.objectApiName && names(held.row[child.field], key),
       );
       if (points) strand(held);
+    }
+  }
+
+  /**
+   * What the bin holds of a duplicate rule's items that went with their set
+   * and hang from `parent` through a cascade, deleted now — what its delete
+   * takes along aside —, stays there for good: see
+   * {@link MemoryOrgFacts.itemWithSetThenRecordLimbo}.
+   */
+  private strandUnder(
+    parent: Pick<Binned, 'objectApiName' | 'row'>,
+    goes: ReadonlySet<string>,
+  ): void {
+    if (!this.facts.itemWithSetThenRecordLimbo) return;
+    const limbo = new Set([DUPLICATE_ITEM]);
+    const key = keyOf(parent.row.Id);
+    const cascades = (this.children[parent.objectApiName] ?? []).filter(
+      (child) => child.cascadeDelete === true && limbo.has(child.childSObject),
+    );
+    for (const [held, entry] of this.binned) {
+      if (entry.hard || entry.emptied || entry.deletedWith === undefined || goes.has(held))
+        continue;
+      if (
+        cascades.some(
+          (child) =>
+            child.childSObject === entry.objectApiName && names(entry.row[child.field], key),
+        )
+      ) {
+        entry.stuck = true;
+      }
     }
   }
 

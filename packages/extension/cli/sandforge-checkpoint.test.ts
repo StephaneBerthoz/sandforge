@@ -2216,6 +2216,31 @@ describe('rewindLines, undoLines and resultJson', () => {
     );
   });
 
+  it('says the items of a duplicate record set an undo brought back without them, never the org back as it was', () => {
+    const lines = undoLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        status: 'partial',
+        residual: [
+          {
+            objectApiName: 'DuplicateRecordItem',
+            reason: 'notBack',
+            count: 2,
+            ids: ['0GL000000000001AAA', '0GL000000000002AAA'],
+            message: 'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+          },
+        ],
+      }),
+    );
+    expect(lines[0]).toBe(
+      "DEV-SB is back as it was before its rewind to 'Before UAT', except 2 record(s), each said with why:",
+    );
+    expect(lines).toContain(
+      '  DuplicateRecordItem 2 — still in the recycle bin: of 1 DuplicateRecordSet the undo brought back, which came back without them',
+    );
+  });
+
   it('says an undo stopped before it wrote anything as nothing written, the rewind still to undo, and one stopped after it wrote as between', () => {
     // Stopped once under way but before its first write, at the question
     // about what it may not delete say, it said "Stopped part way: … is

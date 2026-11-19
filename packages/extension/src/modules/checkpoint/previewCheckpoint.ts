@@ -483,9 +483,21 @@ export async function previewCheckpoint(
       relationshipsOf(body, { inCheckpoint, ...(worked ? { worked } : {}) }),
     );
   }
+  // Of a rewind limited to some objects, what goes with a parent is what goes
+  // with a parent it deletes, as its own plan says: the diff counts what goes
+  // with any, and a rewind of contacts alone, their accounts left, was
+  // estimated 25 requests and sent 89.
   const cost = rewindEstimate({
     objects: checkpoint.objects,
-    diff: selected,
+    diff:
+      plan !== undefined && picked !== undefined
+        ? {
+            ...selected,
+            withParentDeleted: plan.acts.flatMap(({ objectApiName, withParent }) =>
+              (withParent ?? 0) > 0 ? [{ objectApiName, count: withParent ?? 0 }] : [],
+            ),
+          }
+        : selected,
     automationRequests: automation?.requests ?? 0,
     ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
     ...(muteRequests > 0 ? { muteRequests } : {}),

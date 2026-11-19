@@ -592,13 +592,14 @@ describe('docs/modules/checkpoint.md', () => {
 
   it('tells each reason a rewind names for what still differs, in the words of the page', () => {
     const reasons = unionOf(TYPES, 'RewindResidualReason');
-    // Positive control: the seven reasons the verify names.
+    // Positive control: the eight reasons the verify names.
     expect(reasons.sort()).toEqual([
       'automation',
       'changedDuringRewind',
       'changedSincePreview',
       'goneForGood',
       'kept',
+      'notBack',
       'notInBin',
       'refused',
     ]);

@@ -8607,6 +8607,11 @@
           "title": "Kept on purpose",
           "line_one": "{{object}}: {{formatted}} record the rewind kept",
           "line_other": "{{object}}: {{formatted}} records the rewind kept"
+        },
+        "notBack": {
+          "title": "Not brought back",
+          "line_one": "{{object}}: {{formatted}} record still in the recycle bin: Salesforce did not bring it back with what it went with",
+          "line_other": "{{object}}: {{formatted}} records still in the recycle bin: Salesforce did not bring them back with what they went with"
         }
       },
       "undeleted": {

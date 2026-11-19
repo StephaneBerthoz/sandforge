@@ -8607,6 +8607,11 @@
           "title": "Gardés exprès",
           "line_one": "{{object}} : {{formatted}} enregistrement que le retour arrière a gardé",
           "line_other": "{{object}} : {{formatted}} enregistrements que le retour arrière a gardés"
+        },
+        "notBack": {
+          "title": "Non ramenés",
+          "line_one": "{{object}} : {{formatted}} enregistrement toujours dans la corbeille : Salesforce ne l'a pas ramené avec ce avec quoi il était parti",
+          "line_other": "{{object}} : {{formatted}} enregistrements toujours dans la corbeille : Salesforce ne les a pas ramenés avec ce avec quoi ils étaient partis"
         }
       },
       "undeleted": {

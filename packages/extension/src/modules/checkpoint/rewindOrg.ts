@@ -2223,9 +2223,21 @@ class Rewind {
     // connection of its own as the rewind writes: counted nowhere, a mute
     // that assigns one set sent seven requests past its gate, two of them
     // writes, and a lease another run left was taken back past it too.
+    // Limited to some objects, what goes with a parent is what goes with one
+    // it deletes, as its plan says, not as the diff of every object says.
+    const pickedDiff = diffOfPicked(fresh.diff, this.picked);
     const rest = rewindWritesCost({
       objects: checkpoint.objects,
-      diff: diffOfPicked(fresh.diff, this.picked),
+      diff:
+        this.picked !== undefined
+          ? {
+              ...pickedDiff,
+              withParentDeleted: first.plan.objects.flatMap(
+                ({ objectApiName, withParentDeleted }) =>
+                  withParentDeleted > 0 ? [{ objectApiName, count: withParentDeleted }] : [],
+              ),
+            }
+          : pickedDiff,
       automationRequests: 0,
       relationships: await this.relationships(),
       ...(this.confirmedSets.size > 0 ? { duplicateSets: this.confirmedSets.size } : {}),

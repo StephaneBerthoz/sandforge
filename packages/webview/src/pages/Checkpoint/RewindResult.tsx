@@ -76,6 +76,10 @@ const RESIDUAL_KEYS: Readonly<Record<RewindResidualReason, { title: string; line
     title: 'checkpoint.result.residual.kept.title',
     line: 'checkpoint.result.residual.kept.line',
   },
+  notBack: {
+    title: 'checkpoint.result.residual.notBack.title',
+    line: 'checkpoint.result.residual.notBack.line',
+  },
 };
 
 /** What a rewind brought back from the recycle bin is said in. */

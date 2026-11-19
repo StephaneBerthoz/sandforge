@@ -8607,6 +8607,11 @@
           "title": "Bewusst belassen",
           "line_one": "{{object}}: {{formatted}} Datensatz, den das Zurücksetzen belassen hat",
           "line_other": "{{object}}: {{formatted}} Datensätze, die das Zurücksetzen belassen hat"
+        },
+        "notBack": {
+          "title": "Nicht zurückgeholt",
+          "line_one": "{{object}}: {{formatted}} Datensatz noch im Papierkorb: Salesforce hat ihn nicht mit dem zurückgeholt, mit dem er gelöscht wurde",
+          "line_other": "{{object}}: {{formatted}} Datensätze noch im Papierkorb: Salesforce hat sie nicht mit dem zurückgeholt, mit dem sie gelöscht wurden"
         }
       },
       "undeleted": {

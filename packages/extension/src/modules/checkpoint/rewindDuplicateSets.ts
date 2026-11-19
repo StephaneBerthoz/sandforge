@@ -218,6 +218,32 @@ export async function setsLeftOf(
 }
 
 /**
+ * Of the sets `ids` an undo brought back, the items still in the recycle bin:
+ * run for real, an undo brought back the contacts a rewind had deleted, then
+ * their set, empty, its two items still deleted, and no answer of the
+ * undelete said so. A set of none of them is not read.
+ */
+export async function itemsNotBack(
+  org: { queryDeleted(soql: string): Promise<{ records: unknown[] }> },
+  ids: readonly string[],
+): Promise<{ sets: number; items: string[] }> {
+  const sets = new Set<string>();
+  const items: string[] = [];
+  for (const list of idLists([...ids])) {
+    const { records } = await org.queryDeleted(
+      `SELECT Id, DuplicateRecordSetId FROM ${ITEM_OBJECT} ` +
+        `WHERE DuplicateRecordSetId IN (${list}) AND IsDeleted = true`,
+    );
+    for (const row of records as Array<{ Id?: unknown; DuplicateRecordSetId?: unknown }>) {
+      if (typeof row.Id !== 'string') continue;
+      items.push(row.Id);
+      if (typeof row.DuplicateRecordSetId === 'string') sets.add(keyOf(row.DuplicateRecordSetId));
+    }
+  }
+  return { sets: sets.size, items };
+}
+
+/**
  * `records` with the sets `ids` before them: a removal goes in the order it
  * is handed objects that hang from none of the others (`removalOrder`), so
  * the sets go first, their items with them.

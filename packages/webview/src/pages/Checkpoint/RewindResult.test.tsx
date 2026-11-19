@@ -289,6 +289,39 @@ describe('RewindResult', () => {
     );
   });
 
+  it('says the items of a duplicate record set an undo brought back without them, under what it did not bring back (live: a set back, empty)', () => {
+    renderResult(
+      withoutUndo(
+        rewindResult({
+          status: 'partial',
+          residual: [
+            {
+              objectApiName: 'DuplicateRecordItem',
+              reason: 'notBack',
+              count: 2,
+              ids: [],
+              message:
+                'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+            },
+          ],
+        }),
+      ),
+      'undo',
+    );
+    const groups = screen.getByTestId('checkpoint-result-residual');
+    expect(
+      within(groups)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+    ).toEqual(['Not brought back']);
+    expect(
+      screen.getByTestId('checkpoint-result-residual-notBack-DuplicateRecordItem').textContent,
+    ).toBe(
+      'DuplicateRecordItem: 2 records still in the recycle bin: Salesforce did not bring them back with what they went with' +
+        'of 1 DuplicateRecordSet the undo brought back, which came back without them',
+    );
+  });
+
   it('says an undo deleted again what the rewind made again, with what went with it, never that it was brought back (live: two accounts and a contact, two contacts gone with their account)', () => {
     renderResult(
       withoutUndo(

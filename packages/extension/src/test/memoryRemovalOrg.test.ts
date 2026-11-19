@@ -1155,7 +1155,43 @@ describe('MemoryRemovalOrg', () => {
         cascadeChildComesBackAlone: false,
         childDeletedAloneThenParentLimbo: true,
         emptiedStillListed: true,
+        itemWithSetThenRecordLimbo: true,
       });
+    });
+
+    it("keeps in the bin a duplicate rule's item that went with its set before the record it reports, unless told otherwise", async () => {
+      // G-Z03: the set went first with its items, the contacts next; the
+      // undo brought the contacts back, then the set, empty.
+      const SET = fakeId('0GK', 1);
+      const ITEM = fakeId('0GL', 1);
+      const children: Record<string, MemoryChild[]> = {
+        Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+        DuplicateRecordSet: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      };
+      const run = async (limbo: boolean): Promise<boolean> => {
+        const { org } = orgAt({ facts: { itemWithSetThenRecordLimbo: limbo } }, children);
+        org.add('Contact', { Id: CONTACT }, WHEN);
+        org.add('DuplicateRecordSet', { Id: SET }, WHEN);
+        org.add(
+          'DuplicateRecordItem',
+          { Id: ITEM, RecordId: CONTACT, DuplicateRecordSetId: SET },
+          WHEN,
+        );
+        await org.destroy('DuplicateRecordSet', [SET]);
+        await org.destroy('Contact', [CONTACT]);
+        await org.undelete([CONTACT]);
+        await org.undelete([SET]);
+        return org.all('DuplicateRecordItem').some((row) => row.Id === ITEM);
+      };
+
+      expect(await run(true)).toBe(false);
+      expect(await run(false)).toBe(true);
     });
 
     it('gives every combination of the facts named, each once', () => {

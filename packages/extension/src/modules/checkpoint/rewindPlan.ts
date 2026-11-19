@@ -1802,6 +1802,7 @@ export async function selectionPlanOf(plan: RewindPlan): Promise<RewindSelection
       picked: picked.has(object.objectApiName),
       toDelete:
         object.deleted + object.withParentDeleted + object.nextPassDeleted - (object.carriers ?? 0),
+      ...(object.withParentDeleted > 0 ? { withParent: object.withParentDeleted } : {}),
       toGiveBack: await changedGivenBack(plan.dir, object.objectApiName),
       toBringBack: object.broughtBack + object.backWithParent,
       toRecreate: object.recreated,

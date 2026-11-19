@@ -8607,6 +8607,11 @@
           "title": "Mantidos de propósito",
           "line_one": "{{object}}: {{formatted}} registro que o retrocesso manteve",
           "line_other": "{{object}}: {{formatted}} registros que o retrocesso manteve"
+        },
+        "notBack": {
+          "title": "Não trazidos de volta",
+          "line_one": "{{object}}: {{formatted}} registro ainda na lixeira: o Salesforce não o trouxe de volta com aquilo com que saiu",
+          "line_other": "{{object}}: {{formatted}} registros ainda na lixeira: o Salesforce não os trouxe de volta com aquilo com que saíram"
         }
       },
       "undeleted": {
