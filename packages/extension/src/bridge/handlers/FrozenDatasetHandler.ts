@@ -187,6 +187,7 @@ import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import {
   DEFAULT_MAX_NODES,
   GraphDiscoveryService,
@@ -735,7 +736,9 @@ interface ScopedLoadCheckpoint {
  * refusal a load meets past what the target has left.
  */
 function loadApiRequestsOf(check: ApiBudgetCheck, target: string): FrozenLoadApiRequests {
-  const refusal = apiBudgetRefusal(check, target);
+  // The rows a lock refuses go again past what it counted (`BulkDataWriter.locksAgain`):
+  // said, with their bound, as a sync's refusal says them.
+  const refusal = apiBudgetRefusal(check, target, LOCK_RESENDS_NOT_COUNTED);
   return {
     verdict: check.verdict,
     estimate: check.estimate,

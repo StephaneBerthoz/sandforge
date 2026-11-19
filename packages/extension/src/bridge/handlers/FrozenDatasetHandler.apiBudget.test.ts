@@ -357,7 +357,10 @@ describe('frozen:load, the daily API requests its target has left', () => {
         'automation), and DEV has 25 of its 15000 daily requests left: it would stop part way ' +
         'through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has ' +
         'requests to spare — the limit is counted over the last 24 hours — or write fewer ' +
-        'records. Nothing was written.',
+        // The rows a lock refuses go again past what it counted, as a sync's refusal says.
+        'records. Rows the target refuses for a record lock go again on their own, up to 3 ' +
+        'times each: up to 3 more requests for every 200 of them, which no estimate made ' +
+        'before the write can count. Nothing was written.',
     );
     expect(loads()).toEqual([
       expect.objectContaining({
