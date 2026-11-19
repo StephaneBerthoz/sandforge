@@ -1031,7 +1031,7 @@ describe('a mask resource in the file', () => {
     edited(document, ['resources', 'contacts', 'dependsOn'], undefined);
 
     expect(refusedWith(document)).toEqual([
-      'resources.contacts.relations[0].parents.from: customers is a mask resource, which creates no record: a relation draws its parents from the records a seed, a forge or a frozen resource created',
+      'resources.contacts.relations[0].parents.from: customers is a mask resource, which creates no record: a relation draws its parents from the records a seed, a forge, a frozen or a replay resource created',
     ]);
   });
 

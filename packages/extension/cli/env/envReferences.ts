@@ -8,9 +8,10 @@
  * summary it printed; a clone's summary, the target ids its remap table gives
  * the source records it created, from its journal when the summary keeps
  * them there; a Frozen load's mapping in the sas, the records it created
- * rather than linked. Never by a query: the records another resource wrote
- * are the ones its run names, not whatever the org holds that looks like
- * them.
+ * rather than linked; a replay's mapping, kept with the replays in the
+ * environment's store of checkpoints, the same way. Never by a query: the
+ * records another resource wrote are the ones its run names, not whatever
+ * the org holds that looks like them.
  *
  * The seed is handed them as parents named by id (`records`), at most 2,000,
  * the bound of the parents a relation reads of the org, and checks them
@@ -33,7 +34,9 @@ import {
   type EnvRun,
   type EnvSeedDraw,
   type EnvState,
+  type ForgeRunObjectRecords,
 } from '@sandforge/shared';
+import { ReplayStore } from '../../src/modules/checkpoint/replay/replayStore.js';
 import { nodeRunJournal } from '../../src/modules/forge/ForgeRunJournal.js';
 import {
   mappedOrgIds,
@@ -43,10 +46,13 @@ import { loadCreatedRecords } from '../../src/modules/frozendataset/loadRecords.
 import { SasPathGuard } from '../../src/modules/frozendataset/SasPathGuard.js';
 import { SEED_RUNS_DIR } from '../../src/modules/seed/SeedRunCreations.js';
 import { readRunFile } from '../../src/modules/sync/SyncRunCreations.js';
+import { replayStoreRootOf } from '../checkpointReplay.js';
 import { runSummaryOfFile } from '../sandforge-clone.js';
+import { envCheckpointStoreOf } from './envCheckpoints.js';
 import type { EnvFileResource } from './envFile.js';
 import type { EnvStore } from './envState.js';
 import { resourceOfSas } from './kinds/frozen.js';
+import { REPLAY_SCRIPT, replayOfSummaryFile } from './kinds/replay.js';
 import { readSeedRun } from './kinds/seed.js';
 import { nameOf } from '../invocation.js';
 
@@ -200,6 +206,60 @@ async function frozenCreated(
 }
 
 /**
+ * What a replay created: the records its mapping lists among its creations —
+ * never those it linked to, the records the org held under the Ids the
+ * checkpoint knows them by —, in the order it wrote them. The mapping is
+ * kept with the replays in the environment's store of checkpoints, which
+ * every line of a replay resource names (`--store`), under the checkpoint
+ * and the org it was taken of that the replay's answer, kept as its summary,
+ * names.
+ */
+async function replayCreated(
+  run: { summary?: string },
+  where: EnvReferenceWhere,
+  deps: EnvReferenceDeps,
+): Promise<EnvCreated> {
+  if (run.summary === undefined) return { refusal: 'its run keeps no summary' };
+  const file = deps.store.fileOf(where.organizationId, where.env, run.summary);
+  if (!existsSync(file)) return { refusal: 'its run keeps no summary' };
+  let replayed: ReturnType<typeof replayOfSummaryFile>;
+  try {
+    replayed = replayOfSummaryFile(file);
+  } catch {
+    return { refusal: 'its summary names no checkpoint a replay wrote from' };
+  }
+  let objects: ForgeRunObjectRecords[] | undefined;
+  try {
+    const replays = new ReplayStore({
+      root: replayStoreRootOf(envCheckpointStoreOf(deps.journalDir), true),
+    });
+    objects = await replays.createdBy(
+      replays.folderOf(replayed.organizationId, replayed.checkpointId),
+      where.organizationId,
+    );
+  } catch (err: unknown) {
+    return {
+      refusal: `its replays cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (objects === undefined) {
+    return {
+      refusal:
+        `the store of checkpoints keeps no replay of ${replayed.checkpointId} into this org ` +
+        'that says which records it created',
+    };
+  }
+  return {
+    created: byObject(
+      [...objects].reverse().map((object) => ({
+        objectApiName: object.objectApiName,
+        ids: [...object.ids].reverse(),
+      })),
+    ),
+  };
+}
+
+/**
  * The records the last run of `name` created, per object in the order it
  * wrote them, read back from what that run keeps; or why they cannot be
  * told: the resource is not applied to the org whole, its run keeps no
@@ -243,6 +303,8 @@ export async function createdByRun(
       return forgeCreated(run, where, deps);
     case 'sandforge-frozen':
       return frozenCreated(run, where, deps);
+    case REPLAY_SCRIPT:
+      return replayCreated(run, where, deps);
     default:
       return {
         refusal: `its records are kept by ${nameOf(run.script)}, which this SandForge reads not`,

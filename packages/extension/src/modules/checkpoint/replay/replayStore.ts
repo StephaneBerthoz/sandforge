@@ -37,6 +37,7 @@ import {
   checkpointReplayChoicesSchema,
   type CheckpointOrgTier,
   type CheckpointReplayChoices,
+  type ForgeRunObjectRecords,
   type OrgCheckpoint,
 } from '@sandforge/shared';
 import {
@@ -46,7 +47,7 @@ import {
   organizationKey,
 } from '../OrgCheckpointStore.js';
 import { countingContractPath } from '../../frozendataset/CountingContract.js';
-import { loadRecordsLeft } from '../../frozendataset/loadRecords.js';
+import { loadCreatedRecords, loadRecordsLeft } from '../../frozendataset/loadRecords.js';
 import { SasPathGuard } from '../../frozendataset/SasPathGuard.js';
 import {
   SasReferenceIdMappingStore,
@@ -267,6 +268,23 @@ export class ReplayStore {
       orgId: organizationKey(targetOrganizationId),
       ...options,
     });
+  }
+
+  /**
+   * What the last replay of a checkpoint into one org created there, read
+   * from its mapping alone, no org asked: per object, the records it lists
+   * among its creations — never one it linked to, a record the org held
+   * under the Id the checkpoint knows it by —, the objects in the reverse of
+   * the order it wrote them and the last record written first, as a removal
+   * takes them (`loadCreatedRecords`). Undefined when no replay of it into
+   * that org kept a mapping that says which records it created.
+   */
+  async createdBy(
+    folder: ReplayFolder,
+    targetOrganizationId: string,
+  ): Promise<ForgeRunObjectRecords[] | undefined> {
+    const load = await this.mappingStoreOf(folder, targetOrganizationId).recorded();
+    return load?.created === undefined ? undefined : loadCreatedRecords(load);
   }
 
   /** Where the counting contract of the replays of a checkpoint into one org is. */

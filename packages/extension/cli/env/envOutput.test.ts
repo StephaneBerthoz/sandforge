@@ -8,6 +8,7 @@ vi.mock('../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+import { ReplayStore } from '../../src/modules/checkpoint/replay/replayStore.js';
 import {
   OUTPUT_DESTROYED_WHY,
   OUTPUT_MASK_DESTROYED_WHY,
@@ -200,6 +201,62 @@ describe('what an apply created, read back', () => {
       status: 'destroyed',
       records: {},
       why: OUTPUT_MASK_DESTROYED_WHY,
+    });
+  });
+
+  it('names the records a replay created, read from its mapping in the store of checkpoints, and is whole', async () => {
+    const checkpoint = 'ck-20261114-174750-5e38';
+    await store.writeFile(
+      ORG_ID,
+      ENV,
+      'runs/test-data/1.summary.json',
+      JSON.stringify({
+        command: 'replay',
+        action: 'replay',
+        checkpoint: { id: checkpoint, organizationId: OTHER_ORG },
+        target: { alias: 'pool-1', organizationId: ORG_ID },
+        exit: 0,
+      }),
+    );
+    const replays = new ReplayStore({ root: join(journalDir, 'checkpoints', '.replays') });
+    await replays.mappingStoreOf(replays.folderOf(OTHER_ORG, checkpoint), ORG_ID).persist(
+      new Map([
+        [id('001', 91), id('001', 5)],
+        [id('003', 91), id('003', 6)],
+        [id('003', 92), id('003', 92)],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: [id('001', 91)] },
+          { objectApiName: 'Contact', referenceIds: [id('003', 91)] },
+        ],
+        startedAt: new Date(AT),
+      },
+    );
+    const state = stateOf({
+      'test-data': {
+        kind: 'replay',
+        status: 'applied',
+        runs: [
+          {
+            n: 1,
+            script: 'sandforge-checkpoint',
+            summary: 'runs/test-data/1.summary.json',
+            startedAt: AT,
+            objects: [],
+          },
+        ],
+      },
+    });
+
+    const { output, whole } = await outputOf(state, deps());
+
+    expect(whole).toBe(true);
+    expect(output.resources['test-data']).toEqual({
+      kind: 'replay',
+      status: 'applied',
+      run: 1,
+      records: { Account: [id('001', 5)], Contact: [id('003', 6)] },
     });
   });
 

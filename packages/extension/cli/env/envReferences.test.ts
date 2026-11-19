@@ -8,6 +8,7 @@ vi.mock('../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+import { ReplayStore } from '../../src/modules/checkpoint/replay/replayStore.js';
 import { SasReferenceIdMappingStore } from '../../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 import type { EnvFileResource } from './envFile.js';
 import { createdByResource, drawnIdsOf, drawnOf } from './envReferences.js';
@@ -17,7 +18,7 @@ import { newEnvState, openEnvStore, type EnvStore } from './envState.js';
  * The ids a seed relation drawing its parents from another resource is
  * handed: read from what that resource's last run keeps, whatever its kind —
  * a seed's summary, a clone's summary through its remap table, a Frozen
- * load's mapping — never by a query; at most 2,000, or a `limit`.
+ * load's mapping, a replay's — never by a query; at most 2,000, or a `limit`.
  */
 
 const ORG_ID = '00D000000000009RAA';
@@ -97,6 +98,57 @@ function seedSummary(truncated?: true): string {
       totalRecordsFailed: 0,
     },
   });
+}
+
+/** The checkpoint a replay wrote from, and the org it was taken of: a sandbox before its refresh. */
+const CHECKPOINT = 'ck-20261114-174750-5e38';
+const BEFORE_REFRESH = '00D000000000008RAA';
+const REPLAY_SUMMARY = 'runs/test-data/1.summary.json';
+
+/** A replay's answer, as its run printed it and the environment keeps it as its summary. */
+function replaySummary(): string {
+  return JSON.stringify({
+    command: 'replay',
+    action: 'replay',
+    checkpoint: { id: CHECKPOINT, organizationId: BEFORE_REFRESH },
+    target: { alias: 'TGT', organizationId: ORG_ID },
+    exit: 0,
+  });
+}
+
+/** A replay's run, its summary beside the state. */
+const replayRun = (): EnvResourceState['runs'][number] => ({
+  n: 1,
+  script: 'sandforge-checkpoint',
+  summary: REPLAY_SUMMARY,
+  startedAt: AT,
+  objects: [],
+});
+
+/**
+ * A replay of the checkpoint into the org, as the replay keeps it: its
+ * summary, and its mapping in the replays of the environment's store of
+ * checkpoints — an account and two contacts it created, a contact the org
+ * held under the Id the checkpoint knows it by, linked.
+ */
+async function replayed(): Promise<void> {
+  await store.writeFile(ORG_ID, ENV, REPLAY_SUMMARY, replaySummary());
+  const replays = new ReplayStore({ root: join(journalDir, 'checkpoints', '.replays') });
+  await replays.mappingStoreOf(replays.folderOf(BEFORE_REFRESH, CHECKPOINT), ORG_ID).persist(
+    new Map([
+      [id('001', 91), id('001', 1)],
+      [id('003', 91), id('003', 1)],
+      [id('003', 92), id('003', 2)],
+      [id('003', 93), id('003', 93)],
+    ]),
+    {
+      created: [
+        { objectApiName: 'Account', referenceIds: [id('001', 91)] },
+        { objectApiName: 'Contact', referenceIds: [id('003', 91), id('003', 92)] },
+      ],
+      startedAt: new Date(AT),
+    },
+  );
 }
 
 describe('the records a resource created', () => {
@@ -205,6 +257,46 @@ describe('the records a resource created', () => {
     expect(await createdByResource(state, 'claims', where, { store, journalDir })).toEqual({
       created: new Map([['Account', [id('001', 1), id('001', 2)]]]),
     });
+  });
+
+  it('reads a replay’s from its mapping, kept with the replays in the store of checkpoints: what it created, never what it linked to', async () => {
+    await replayed();
+    const state = stateWith('test-data', {
+      kind: 'replay',
+      status: 'applied',
+      run: replayRun(),
+    });
+
+    expect(await createdByResource(state, 'test-data', where, { store, journalDir })).toEqual({
+      created: new Map([
+        ['Account', [id('001', 1)]],
+        ['Contact', [id('003', 1), id('003', 2)]],
+      ]),
+    });
+  });
+
+  it('refuses a replay whose summary names no checkpoint, or whose replays keep no mapping into this org', async () => {
+    const state = stateWith('test-data', {
+      kind: 'replay',
+      status: 'applied',
+      run: replayRun(),
+    });
+    const read = () => createdByResource(state, 'test-data', where, { store, journalDir });
+
+    expect(await read()).toEqual({ refusal: 'test-data: its run keeps no summary' });
+    await store.writeFile(ORG_ID, ENV, REPLAY_SUMMARY, JSON.stringify({ command: 'replay' }));
+    expect(await read()).toEqual({
+      refusal: 'test-data: its summary names no checkpoint a replay wrote from',
+    });
+    await store.writeFile(ORG_ID, ENV, REPLAY_SUMMARY, replaySummary());
+    expect(await read()).toEqual({
+      refusal:
+        `test-data: the store of checkpoints keeps no replay of ${CHECKPOINT} into this org ` +
+        'that says which records it created',
+    });
+    // Positive control: with its mapping, the same run is read.
+    await replayed();
+    expect(await read()).toMatchObject({ created: expect.any(Map) });
   });
 
   it('refuses a resource not applied to the org whole: never run, taken back, partial', async () => {
@@ -327,5 +419,21 @@ describe('the parents a draw is handed', () => {
         'whose records cannot be read: accounts: its summary names the first',
       ),
     ]);
+
+    // From a replay: the accounts it created, never a record it linked to.
+    await replayed();
+    const fromReplay = await drawnOf(
+      {
+        ...resource,
+        dependsOn: ['test-data'],
+        run: { ...resource.run, draws: [{ ...draw, from: 'test-data' }] },
+      } as EnvFileResource,
+      stateWith('test-data', { kind: 'replay', status: 'applied', run: replayRun() }),
+      new Set(),
+      where,
+      { store, journalDir },
+    );
+    expect(fromReplay.ids).toEqual(new Map([[0, [id('001', 1)]]]));
+    expect(fromReplay.refusals).toEqual([]);
   });
 });

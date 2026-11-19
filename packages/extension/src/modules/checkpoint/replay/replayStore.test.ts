@@ -242,6 +242,48 @@ describe('the list of replays, no org asked', () => {
   });
 });
 
+describe('what a replay created', () => {
+  it('is read from the mapping of its last replay into the org: what it created, never a record it linked to, last written first', async () => {
+    const dir = scratch();
+    const store = storeIn(dir);
+    const folder = store.folderOf(SOURCE, CHECKPOINT_ID);
+    // An account and a contact made, and a contact the org held under the
+    // Id the checkpoint knows it by, linked.
+    await store.mappingStoreOf(folder, TARGET).persist(
+      new Map([
+        ['001000000000001AAA', '001000000000091AAA'],
+        ['003000000000001AAA', '003000000000091AAA'],
+        ['003000000000002AAA', '003000000000002AAA'],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['001000000000001AAA'] },
+          { objectApiName: 'Contact', referenceIds: ['003000000000001AAA'] },
+        ],
+        startedAt: new Date('2026-11-12T10:01:00.000Z'),
+      },
+    );
+
+    expect(await store.createdBy(folder, TARGET.slice(0, 15))).toEqual([
+      { objectApiName: 'Contact', ids: ['003000000000091AAA'] },
+      { objectApiName: 'Account', ids: ['001000000000091AAA'] },
+    ]);
+  });
+
+  it('is nothing for an org it never went into, nor for a mapping that does not say what it created', async () => {
+    const dir = scratch();
+    const store = storeIn(dir);
+    const folder = store.folderOf(SOURCE, CHECKPOINT_ID);
+    expect(await store.createdBy(folder, TARGET)).toBeUndefined();
+
+    await store
+      .mappingStoreOf(folder, TARGET)
+      .persist(new Map([['001000000000001AAA', '001000000000091AAA']]));
+    expect(await store.createdBy(folder, TARGET)).toBeUndefined();
+    expect(await store.createdBy(folder, OTHER_TARGET)).toBeUndefined();
+  });
+});
+
 describe('a checkpoint deleted', () => {
   it('leaves its replays where they are, and names those still in place', async () => {
     const dir = scratch();

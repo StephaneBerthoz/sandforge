@@ -3,7 +3,8 @@
  * the state holds, in the order apply runs them, the ids of the records its
  * last run created, by object, as that run's own files name them — a seed's
  * run file or its summary, a clone's summary, a Frozen load's mapping in its
- * sas (`envReferences.ts`, which hands a seed relation the same ids). It
+ * sas, a replay's mapping in the environment's store of checkpoints
+ * (`envReferences.ts`, which hands a seed relation the same ids). It
  * reaches no org. A test suite reads with it, once the apply ended, the
  * records it tests against.
  *

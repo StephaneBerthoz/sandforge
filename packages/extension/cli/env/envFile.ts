@@ -427,9 +427,9 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
 /**
  * Why a relation may not draw its parents from the records another resource
  * created: that resource writes no record of the parent object. Told offline
- * of a seed resource, which writes the objects its file lists; a forge or a
- * frozen resource writes what its source's graph or its dataset holds, which
- * its plan reads.
+ * of a seed resource, which writes the objects its file lists; a forge, a
+ * frozen or a replay resource writes what its source's graph, its dataset or
+ * its checkpoint holds, which its plan reads.
  */
 function drawnObjectRefusals(runs: Readonly<Record<string, EnvKindRun>>): EnvFileRefusal[] {
   const refusals: EnvFileRefusal[] = [];
@@ -443,7 +443,7 @@ function drawnObjectRefusals(runs: Readonly<Record<string, EnvKindRun>>): EnvFil
           refusalAt(
             ['resources', name, 'relations', draw.at, 'parents', 'from'],
             `${draw.from} is a mask resource, which creates no record: a relation draws its ` +
-              'parents from the records a seed, a forge or a frozen resource created',
+              'parents from the records a seed, a forge, a frozen or a replay resource created',
           ),
         );
         continue;
