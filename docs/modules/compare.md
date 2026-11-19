@@ -158,6 +158,35 @@ them that differ:
 - No metadata is read, so a difference in security settings, sharing rules or
   any other configuration does not appear here
 
+## Command line
+
+`sandforge compare --source <alias> --target <alias>` sends the page's
+requests without the editor: the diff (`--type`, `--all-types`), the
+permission sets and profiles, the objects and the Organization settings of the
+two orgs, and a validation (`--validate <Type:Name>`), check-only. None of them
+writes to either org. [Command line & CI](../../ci-examples/README.md) lists
+its flags and its exit codes.
+
+`--deploy <Type:Name>`, given once per component, deploys as **Deploy from
+Diff** does, through the same two requests: the components are validated in
+the target first, then the package the target validated is deployed, with the
+same tests, once the target's alias is typed. `--yes` stands in for the alias;
+with neither a terminal nor `--yes`, the line is refused, exit `2`, before any
+org is reached.
+
+- **Before the validation**, it says the two orgs, the components and the
+  tests. With no `--tests`, the target's own tests run when an Apex class or
+  trigger is among the components, as the tab advises. `--dry-run` says the
+  same and sends nothing to either org.
+- **A production target**, or one it cannot tell from one, is refused before
+  anything is sent, `--dry-run` included, exit `1`. No flag lifts it.
+- **It exits** `0` once deployed; `3` when the validation or the deployment
+  came back with no success (the target rolls a failed deployment back whole);
+  `1` when it was refused, the alias typed was not the target's, or a request
+  failed. `--json` carries both reports and how the run ended.
+- **It deletes nothing** from the target: a component it created stays there
+  until it is deleted in the target itself.
+
 ## Tips
 
 - Run a compare before any major deployment to understand the full scope of changes

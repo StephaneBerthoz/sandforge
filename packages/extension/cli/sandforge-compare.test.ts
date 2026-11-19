@@ -85,10 +85,10 @@ describe('parseArgs', () => {
     expect(message).toContain(`One of: ${PAGE_COMPONENT_TYPES.join(', ')}.`);
   });
 
-  it('names the Deploy tab of the Compare page when asked to deploy, which it never does', () => {
+  it('names --deploy when asked for the deploy operation, which goes only after a validation', () => {
     const { code, message } = refuse('--source', 'S', '--target', 'T', '--op', 'deploy');
     expect(code).toBe(2);
-    expect(message).toContain('Deploy tab of the Compare page');
+    expect(message).toContain('--deploy Type:Name');
   });
 
   it('refuses one org compared with itself', () => {
@@ -138,7 +138,7 @@ describe('parseArgs, validating a deployment', () => {
     expect(args.validation.runTests).toEqual(['InvoicingTest']);
   });
 
-  it('can send no request that deploys: a validation is the furthest it goes', () => {
+  it('sends no deployment from --op: a validation is the furthest an operation goes', () => {
     const every = parseArgs(
       argv(
         ...base,
@@ -397,7 +397,7 @@ describe('describeAnswer, when a request does not come back as asked', () => {
     expect(said).not.toContain('untick');
   });
 
-  it('names the Deploy tab once a validation succeeds, since this tool never deploys', () => {
+  it('no longer says this tool never deploys once a validation succeeds', () => {
     const lines = describeAnswer('validate-deployment', {
       outcome: 'answered',
       message: {
@@ -409,7 +409,41 @@ describe('describeAnswer, when a request does not come back as asked', () => {
       elapsedMs: 4000,
       late: false,
     });
-    expect(lines.join('\n')).toContain('the Deploy tab of the Compare page deploys it');
+    expect(lines.join('\n')).not.toContain('never deploys');
+  });
+
+  it('names the --deploy to drop for what a managed package owns, when --deploy named it', () => {
+    const lines = describeAnswer(
+      'validate-deployment',
+      {
+        outcome: 'failed',
+        message: {
+          id: 'e',
+          type: 'compare:error',
+          timestamp: 0,
+          payload: {
+            code: 'MANAGED',
+            message: 'A managed package installed ApexClass pkg__Tax in the source.',
+            managed: [{ componentType: 'ApexClass', fullName: 'pkg__Tax' }],
+          },
+        },
+        elapsedMs: 4000,
+        late: false,
+      },
+      '--deploy',
+    );
+    expect(lines.join('\n')).toContain('drop --deploy ApexClass:pkg__Tax from the line');
+  });
+
+  it('says a deployment nothing came back from may go on in the target, and where to follow it', () => {
+    const lines = describeAnswer('deploy', {
+      outcome: 'unanswered',
+      elapsedMs: 1_860_000,
+      late: true,
+    });
+    expect(lines.join('\n')).toContain(
+      'the deployment may go on in the target, whose Setup › Deployment Status follows it',
+    );
   });
 });
 

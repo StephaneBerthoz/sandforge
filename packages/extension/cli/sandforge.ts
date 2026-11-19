@@ -28,7 +28,7 @@ export const TOOLS = {
   checkpoint: "take a checkpoint of an org's data, and rewind the org to it",
   cleanup: 'Bulk delete records you created on a sandbox in a time window',
   clone: 'clone a record, or whole tables, from one org to a sandbox, or remove a run',
-  compare: 'compare two orgs the way the Compare page does',
+  compare: 'compare two orgs the way the Compare page does, and deploy what differs',
   dataops: "mask an org's records, and put them back",
   empty: 'empty objects of a sandbox, or the whole of it',
   env: 'apply a sandforge.yaml to an org, and take it back',
