@@ -5291,7 +5291,7 @@
           "oldest": "The oldest first",
           "oldestHint": "The records made first, by their creation date: drawing reads only those it keeps, and the sample leans to the oldest data."
         },
-        "cost": "Drawing it reads API requests of {{source}}: {{allowance}}. It takes about {{duration}}.",
+        "cost": "An estimate, by discovery's counts: reading the roots to draw it takes API requests of {{source}}: {{allowance}}. It takes about {{duration}}. The records the roots reach and name are read on top: Simulate says every request drawing sent.",
         "costRefused": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Draw the newest or the oldest first, choose fewer roots under Which roots, or leave the largest objects out.",
         "whole": "Copied whole of itself: {{objects}}.",
         "why": {
@@ -5329,7 +5329,7 @@
           "label": "Records drawn of each object, whatever the share",
           "hint": "Each object keeps at least this many of its records, whatever the share the room left gives it. At 0, an object may have none drawn: a sample then fits where these records alone took more than it may take."
         },
-        "costAtMost": "Drawing it reads API requests of {{source}}, at most: {{allowance}}. It takes about {{duration}} at most: the window and the filters of the roots leave fewer roots than discovery counted.",
+        "costAtMost": "An estimate, by discovery's counts: reading the roots to draw it takes API requests of {{source}}, at most: {{allowance}}. It takes about {{duration}} at most: the window and the filters of the roots leave fewer roots than discovery counted. The records the roots reach and name are read on top: Simulate says every request drawing sent.",
         "costRefusedByDate": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Choose fewer roots under Which roots — a narrower window, filters of the roots, fewer strata —, or leave the largest objects out.",
         "seedHintByDate": "The newest or the oldest are the same records whatever the seed: Draw again draws others only when the roots are spread over the org.",
         "roots": {

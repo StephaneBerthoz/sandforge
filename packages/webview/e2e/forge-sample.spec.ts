@@ -200,8 +200,12 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('review-sample-budget')).toHaveText(
         'The sample may take about 3.2 MB: 80 % of the 4.5 MB QASandbox has left, 0.5 MB kept off for rounding.',
       );
+      // An estimate of the roots' reads, by discovery's counts, and what it leaves out.
       await expect(page.getByTestId('review-sample-cost')).toContainText(
-        'Drawing it reads API requests of DevSandbox: about 1,950',
+        "An estimate, by discovery's counts: reading the roots to draw it takes API requests of DevSandbox: about 1,950",
+      );
+      await expect(page.getByTestId('review-sample-cost')).toContainText(
+        'The records the roots reach and name are read on top: Simulate says every request drawing sent.',
       );
       // The files go greyed, with why: a sample copies none yet.
       await expect(page.getByTestId('forge-files-toggle')).toBeDisabled();
@@ -384,7 +388,7 @@ for (const theme of THEMES) {
         }),
       });
       await expect(page.getByTestId('review-sample-cost')).toContainText(
-        'Drawing it reads API requests of DevSandbox, at most',
+        'reading the roots to draw it takes API requests of DevSandbox, at most',
       );
       // Draw again draws nothing else of the oldest: greyed, with why.
       await page.getByTestId('review-sample-more').locator('summary').click();

@@ -5291,7 +5291,7 @@
           "oldest": "Os mais antigos primeiro",
           "oldestHint": "Os registros criados primeiro, pela data de criação: o sorteio lê apenas os que mantém, e a amostra pende para os dados mais antigos."
         },
-        "cost": "Sorteá-la lê solicitações de API de {{source}}: {{allowance}}. Leva cerca de {{duration}}.",
+        "cost": "Uma estimativa, pelas contagens da descoberta: ler as raízes para sorteá-la consome solicitações de API de {{source}}: {{allowance}}. Leva cerca de {{duration}}. Os registros que as raízes alcançam e nomeiam são lidos além disso: Simular informa cada solicitação que o sorteio enviou.",
         "costRefused": "Isso passa de um décimo do que resta hoje a {{source}}: o sorteio seria recusado antes de ler um id. Sorteie os mais recentes ou os mais antigos primeiro, escolha menos raízes em Quais raízes, ou exclua os maiores objetos.",
         "whole": "Copiados inteiros por conta própria: {{objects}}.",
         "why": {
@@ -5329,7 +5329,7 @@
           "label": "Registros sorteados de cada objeto, qualquer que seja a proporção",
           "hint": "Cada objeto mantém pelo menos esta quantidade de seus registros, qualquer que seja a proporção que o espaço restante lhe dá. Em 0, pode ser que nenhum seja sorteado de um objeto: uma amostra então cabe onde esses registros sozinhos ocupavam mais do que ela pode ocupar."
         },
-        "costAtMost": "Sorteá-la lê no máximo solicitações de API de {{source}}: {{allowance}}. Leva no máximo cerca de {{duration}}: a janela e os filtros das raízes deixam menos raízes do que a descoberta contou.",
+        "costAtMost": "Uma estimativa, pelas contagens da descoberta: ler as raízes para sorteá-la consome no máximo solicitações de API de {{source}}: {{allowance}}. Leva no máximo cerca de {{duration}}: a janela e os filtros das raízes deixam menos raízes do que a descoberta contou. Os registros que as raízes alcançam e nomeiam são lidos além disso: Simular informa cada solicitação que o sorteio enviou.",
         "costRefusedByDate": "Isso passa de um décimo do que resta hoje a {{source}}: o sorteio seria recusado antes de ler um id. Escolha menos raízes em Quais raízes — uma janela mais estreita, filtros das raízes, menos estratos —, ou exclua os maiores objetos.",
         "seedHintByDate": "Os mais recentes ou os mais antigos são os mesmos registros qualquer que seja a semente: Sortear de novo só sorteia outros quando as raízes são distribuídas pela org.",
         "roots": {

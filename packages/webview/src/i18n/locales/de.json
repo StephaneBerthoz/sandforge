@@ -5291,7 +5291,7 @@
           "oldest": "Die ältesten zuerst",
           "oldestHint": "Die zuerst erstellten Datensätze, nach ihrem Erstellungsdatum: Die Ziehung liest nur die, die sie behält, und die Stichprobe neigt zu den ältesten Daten."
         },
-        "cost": "Die Ziehung liest API-Anfragen von {{source}}: {{allowance}}. Sie dauert etwa {{duration}}.",
+        "cost": "Eine Schätzung nach den Zählungen der Erkennung: Das Lesen der Wurzeln für die Ziehung kostet API-Anfragen von {{source}}: {{allowance}}. Es dauert etwa {{duration}}. Die Datensätze, die die Wurzeln erreichen und nennen, werden zusätzlich gelesen: Simulieren nennt jede Anfrage, die die Ziehung gesendet hat.",
         "costRefused": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Ziehen Sie die neuesten oder die ältesten zuerst, wählen Sie unter Welche Wurzeln weniger Wurzeln, oder lassen Sie die größten Objekte weg.",
         "whole": "Von selbst vollständig kopiert: {{objects}}.",
         "why": {
@@ -5329,7 +5329,7 @@
           "label": "Gezogene Datensätze jedes Objekts, unabhängig vom Anteil",
           "hint": "Jedes Objekt behält mindestens so viele seiner Datensätze, welchen Anteil der verbleibende Platz ihm auch gibt. Bei 0 wird von einem Objekt vielleicht keiner gezogen: Eine Stichprobe passt dann dort, wo diese Datensätze allein mehr belegten, als sie belegen darf."
         },
-        "costAtMost": "Die Ziehung liest höchstens API-Anfragen von {{source}}: {{allowance}}. Sie dauert höchstens etwa {{duration}}: Das Zeitfenster und die Filter der Wurzeln lassen weniger Wurzeln übrig, als die Erkennung gezählt hat.",
+        "costAtMost": "Eine Schätzung nach den Zählungen der Erkennung: Das Lesen der Wurzeln für die Ziehung kostet höchstens API-Anfragen von {{source}}: {{allowance}}. Es dauert höchstens etwa {{duration}}: Das Zeitfenster und die Filter der Wurzeln lassen weniger Wurzeln übrig, als die Erkennung gezählt hat. Die Datensätze, die die Wurzeln erreichen und nennen, werden zusätzlich gelesen: Simulieren nennt jede Anfrage, die die Ziehung gesendet hat.",
         "costRefusedByDate": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Wählen Sie unter Welche Wurzeln weniger Wurzeln – ein engeres Zeitfenster, Filter der Wurzeln, weniger Schichten –, oder lassen Sie die größten Objekte weg.",
         "seedHintByDate": "Die neuesten oder die ältesten sind unabhängig vom Startwert dieselben Datensätze: Neu ziehen zieht nur dann andere, wenn die Wurzeln über die Org verteilt werden.",
         "roots": {

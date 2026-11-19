@@ -246,9 +246,12 @@ function objectsOfTheGraph(
  *   against a tenth of what the
  *   source has left, past which the draw is refused; and the seconds it
  *   takes, a page a second. The reads of the records the roots bring in are
- *   said once drawn (`WholeOrgSample.planRequests`). A window or filters on
- *   the roots add a count of each object they hold, and leave fewer roots
- *   than discovery counted: the estimate is then at most (`atMost`). An
+ *   said once drawn (`WholeOrgSample.planRequests`): Review says the estimate
+ *   is one, of the roots alone, by discovery's counts, the source asked
+ *   nothing for it. A window or filters on the roots add a count of each
+ *   object they hold, and leave fewer roots than discovery counted: the
+ *   estimate of the roots' reads is then at most (`atMost`), those of the
+ *   records they bring in still on top. An
  *   object stratified and drawn by date reads a statement per value
  *   besides, which no count of discovery tells: said once the values are
  *   counted, as the draw prices itself again before an id is read.

@@ -170,8 +170,10 @@ describe('ReviewWholeOrgSample', () => {
     expect(screen.getByTestId('review-sample-budget').textContent).toBe(
       'The sample may take about 3.2 MB: 80 % of the 4.5 MB dev has left, 0.5 MB kept off for rounding.',
     );
+    // An estimate of the roots' reads, from discovery's counts: what the
+    // roots bring in is read on top, which no count says before the draw.
     expect(screen.getByTestId('review-sample-cost').textContent).toBe(
-      'Drawing it reads API requests of prod: about 1,950, of 14,000 left today out of 15,000. It takes about 4min.',
+      "An estimate, by discovery's counts: reading the roots to draw it takes API requests of prod: about 1,950, of 14,000 left today out of 15,000. It takes about 4min. The records the roots reach and name are read on top: Simulate says every request drawing sent.",
     );
     expect(screen.getByTestId('review-sample-whole').textContent).toBe(
       'Copied whole of itself: Opportunity (an object of few records that drawn records name).',
@@ -419,8 +421,9 @@ describe('ReviewWholeOrgSample', () => {
         },
       }),
     );
+    // At most for the roots alone: the records they bring in are read on top.
     expect(screen.getByTestId('review-sample-cost').textContent).toBe(
-      'Drawing it reads API requests of prod, at most: about 1,951, of 14,000 left today out of 15,000. It takes about 4min at most: the window and the filters of the roots leave fewer roots than discovery counted.',
+      "An estimate, by discovery's counts: reading the roots to draw it takes API requests of prod, at most: about 1,951, of 14,000 left today out of 15,000. It takes about 4min at most: the window and the filters of the roots leave fewer roots than discovery counted. The records the roots reach and name are read on top: Simulate says every request drawing sent.",
     );
   });
 

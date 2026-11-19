@@ -5291,7 +5291,7 @@
           "oldest": "Les plus anciens d'abord",
           "oldestHint": "Les enregistrements créés en premier, selon leur date de création : le tirage ne lit que ceux qu'il garde, et l'échantillon penche vers les données les plus anciennes."
         },
-        "cost": "Le tirer lit des requêtes API de {{source}} : {{allowance}}. Cela prend environ {{duration}}.",
+        "cost": "Une estimation, d'après les comptes de la découverte : lire les racines pour le tirer prend des requêtes API de {{source}} : {{allowance}}. Cela prend environ {{duration}}. Les enregistrements que les racines atteignent et nomment sont lus en plus : Simuler dit chaque requête que le tirage a envoyée.",
         "costRefused": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Tirez les plus récents ou les plus anciens d'abord, choisissez moins de racines sous Quelles racines, ou excluez les plus gros objets.",
         "whole": "Copiés en entier d'office : {{objects}}.",
         "why": {
@@ -5329,7 +5329,7 @@
           "label": "Enregistrements tirés de chaque objet, quelle que soit la part",
           "hint": "Chaque objet garde au moins ce nombre de ses enregistrements, quelle que soit la part que lui laisse la place restante. À 0, un objet peut n'en avoir aucun de tiré : un échantillon tient alors là où ces enregistrements prenaient à eux seuls plus que ce qu'il peut prendre."
         },
-        "costAtMost": "Le tirer lit au plus des requêtes API de {{source}} : {{allowance}}. Cela prend au plus environ {{duration}} : la fenêtre et les filtres des racines laissent moins de racines que la découverte n'en a comptées.",
+        "costAtMost": "Une estimation, d'après les comptes de la découverte : lire les racines pour le tirer prend au plus des requêtes API de {{source}} : {{allowance}}. Cela prend au plus environ {{duration}} : la fenêtre et les filtres des racines laissent moins de racines que la découverte n'en a comptées. Les enregistrements que les racines atteignent et nomment sont lus en plus : Simuler dit chaque requête que le tirage a envoyée.",
         "costRefusedByDate": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Choisissez moins de racines sous Quelles racines — une fenêtre plus étroite, des filtres des racines, moins de strates —, ou excluez les plus gros objets.",
         "seedHintByDate": "Les plus récents ou les plus anciens sont les mêmes enregistrements quelle que soit la graine : Tirer à nouveau n'en tire d'autres que si les racines sont réparties sur l'org.",
         "roots": {

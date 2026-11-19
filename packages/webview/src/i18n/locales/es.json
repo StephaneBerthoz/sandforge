@@ -5291,7 +5291,7 @@
           "oldest": "Los más antiguos primero",
           "oldestHint": "Los registros creados primero, según su fecha de creación: la extracción solo lee los que conserva, y la muestra se inclina hacia los datos más antiguos."
         },
-        "cost": "Extraerla lee solicitudes de API de {{source}}: {{allowance}}. Tarda unos {{duration}}.",
+        "cost": "Una estimación, según los recuentos del descubrimiento: leer las raíces para extraerla consume solicitudes de API de {{source}}: {{allowance}}. Tarda unos {{duration}}. Los registros que las raíces alcanzan y nombran se leen además: Simular indica cada solicitud que envió la extracción.",
         "costRefused": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Extraiga los más recientes o los más antiguos primero, elija menos raíces en Qué raíces, o excluya los objetos más grandes.",
         "whole": "Copiados enteros por sí solos: {{objects}}.",
         "why": {
@@ -5329,7 +5329,7 @@
           "label": "Registros extraídos de cada objeto, sea cual sea la proporción",
           "hint": "Cada objeto conserva al menos esta cantidad de sus registros, sea cual sea la proporción que le deja el espacio restante. En 0, puede que no se extraiga ninguno de un objeto: entonces cabe una muestra donde esos registros ocupaban por sí solos más de lo que puede ocupar."
         },
-        "costAtMost": "Extraerla lee como máximo solicitudes de API de {{source}}: {{allowance}}. Tarda como máximo unos {{duration}}: la ventana y los filtros de las raíces dejan menos raíces de las que contó el descubrimiento.",
+        "costAtMost": "Una estimación, según los recuentos del descubrimiento: leer las raíces para extraerla consume como máximo solicitudes de API de {{source}}: {{allowance}}. Tarda como máximo unos {{duration}}: la ventana y los filtros de las raíces dejan menos raíces de las que contó el descubrimiento. Los registros que las raíces alcanzan y nombran se leen además: Simular indica cada solicitud que envió la extracción.",
         "costRefusedByDate": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Elija menos raíces en Qué raíces —una ventana más estrecha, filtros de las raíces, menos estratos—, o excluya los objetos más grandes.",
         "seedHintByDate": "Los más recientes o los más antiguos son los mismos registros sea cual sea la semilla: Extraer de nuevo solo extrae otros cuando las raíces se reparten por la org.",
         "roots": {
