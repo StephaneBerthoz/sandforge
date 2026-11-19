@@ -2137,8 +2137,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   });
   // Who the run writes as, for the sweep of its removal: its file takes it
   // whenever the target says, and nothing waits for it, not even the end of
-  // the process, which goes as `main` returns.
-  keepRunUser(runFile, () => targetConn.identity(), 'sandforge sync');
+  // the process, which goes as `main` returns. Its summary says it too, once
+  // the target has said it by then: the file kept it and the summary did
+  // not, and a removal from the summary read nothing of the duplicate record
+  // sets it deletes with the records.
+  let runUserSaid: string | undefined;
+  keepRunUser(
+    runFile && {
+      runUser: (userId) => {
+        runUserSaid = userId;
+        runFile.runUser?.(userId);
+      },
+    },
+    () => targetConn.identity(),
+    'sandforge sync',
+  );
   // Where what the run creates is kept as it writes it, however the run
   // ends: said once, as its gate lets it write and before its first write,
   // on stderr with --json. A run refused at its gate begins no file, and
@@ -2950,7 +2963,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // How it ended, partial when the bound cut a read, as its status
           // line and its exit code say: "success" under --json hid the cut
           // from a pipeline that read the summary.
-          result: { ...result, status: ended },
+          result: {
+            ...result,
+            status: ended,
+            ...(runUserSaid !== undefined ? { runUserId: runUserSaid } : {}),
+          },
           // Each object whose read the bound stopped short: copied in part.
           ...readCutJson(),
           // The checkpoint it took of what it writes before its first write
@@ -3204,6 +3221,9 @@ const runSummarySchema = z
         lastWrittenAt: z.string().min(1).max(40).optional(),
         firstWrittenAt: z.string().min(1).max(40).optional(),
         lastWriteAt: z.string().min(1).max(40).optional(),
+        // The run's file: where the user the run wrote as is read from when
+        // the summary does not say it.
+        runFile: z.string().min(1).max(4096).optional(),
         objects: z.array(
           z.object({
             objectApiName: z.string().regex(API_NAME_RE),
@@ -3516,6 +3536,32 @@ function sweptOfSummary(
   return { ...(runUserId ? { runUserId } : {}), ...(muted.success ? { muted: muted.data } : {}) };
 }
 
+/**
+ * The user a run wrote as, read from the run's file a summary names when the
+ * summary says none: printed before the target said who the session is, or
+ * by a version that did not say it, the summary alone took the run for one
+ * whose user was not kept, and its removal read nothing of the duplicate
+ * record sets it deletes with the records. Only the file of that same run is
+ * read, of that same command when `configId` is given; any other, or one
+ * that does not read, gives none.
+ */
+export function runUserOfRunFile(
+  file: string | undefined,
+  runId: string | undefined,
+  configId?: string,
+): string | undefined {
+  if (file === undefined || runId === undefined) return undefined;
+  let read: ReturnType<typeof readRunFile>;
+  try {
+    read = readRunFile(readFileSync(file, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (!read || read.runId !== runId) return undefined;
+  if (configId !== undefined && read.configId !== configId) return undefined;
+  return runUserIdOf(read.runUserId);
+}
+
 /** The run a summary names, and where what its removals did is kept: beside the summary. */
 function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): RemovalSubject {
   let text: string;
@@ -3575,12 +3621,16 @@ function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): Remova
   }
   const run = runOfSummary(summary, earlier);
   let state: SyncRunRemovalState = earlier ?? {};
+  const swept = sweptOfSummary(summary.result);
+  const runUserId =
+    swept.runUserId ?? runUserOfRunFile(summary.created?.runFile, summary.created?.runId);
   return {
     run,
     ...(summary.configId !== undefined ? { configId: summary.configId } : {}),
     ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
     ...(earlier ? { earlier } : {}),
-    ...sweptOfSummary(summary.result),
+    ...swept,
+    ...(runUserId !== undefined ? { runUserId } : {}),
     // Kept beside the summary whatever the removal ended on, written whole
     // through a file renamed over it.
     updateRemoval: async (change) => {

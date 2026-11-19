@@ -95,6 +95,7 @@ import {
   removalSummaryLines,
   removalsPathOf,
   runFileOf,
+  runUserOfRunFile,
 } from './sandforge-sync.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { countRequests } from '../src/core/precheck/orgKindLive.js';
@@ -2531,8 +2532,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   });
   // Who the run writes as, for the sweep of its removal: its file takes it
   // whenever the org says, and nothing waits for it, not even the end of the
-  // process, which goes as `main` returns.
-  keepRunUser(kept, () => conn.identity(), 'sandforge seed');
+  // process, which goes as `main` returns. Its summary says it too, once the
+  // org has said it by then: the file kept it and the summary did not, and a
+  // removal from the summary read nothing of the duplicate record sets it
+  // deletes with the records.
+  let runUserSaid: string | undefined;
+  keepRunUser(
+    kept && {
+      runUser: (userId) => {
+        runUserSaid = userId;
+        kept.runUser?.(userId);
+      },
+    },
+    () => conn.identity(),
+    'sandforge seed',
+  );
   const runFilePath = runs?.pathOf(runId);
 
   // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
@@ -2901,7 +2915,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // a dry run, what a real run's would hold and cost, and its refusal.
           ...(checkpointSaid ? { checkpoint: checkpointSaid } : {}),
           ...wouldBeRefusedJson(wouldBeRefused),
-          result,
+          result: runUserSaid !== undefined ? { ...result, runUserId: runUserSaid } : result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),
           // A scenario's: what its tests are and where their cases' ids are kept.
@@ -3182,6 +3196,9 @@ const runSummarySchema = z
     dryRun: z.boolean(),
     startedAt: z.string().min(1).max(40).optional(),
     finishedAt: z.string().min(1).max(40).optional(),
+    // The run's file: where the user the run wrote as is read from when the
+    // summary does not say it.
+    runFile: z.string().min(1).max(4096).optional(),
     result: z
       .object({
         operationId: z.string().min(1).max(200).optional(),
@@ -3427,11 +3444,14 @@ function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): Remova
   }
   const run = runOfSummary(summary, earlier);
   let state: SyncRunRemovalState = earlier ?? {};
+  const swept = sweptOfSummary(summary.result);
+  const runUserId = swept.runUserId ?? runUserOfRunFile(summary.runFile, runId, 'sandforge-seed');
   return {
     run,
     ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
     ...(earlier ? { earlier } : {}),
-    ...sweptOfSummary(summary.result),
+    ...swept,
+    ...(runUserId !== undefined ? { runUserId } : {}),
     // Kept beside the summary whatever the removal ended on, written whole
     // through a file renamed over it.
     updateRemoval: async (change) => {
@@ -4154,6 +4174,11 @@ async function previewRemoval(
       run,
       org: removalOrg(conn, 'sandforge seed --remove --preview'),
       includeChanged: args.includeChanged,
+      // The user the run wrote as: the sets the target's duplicate rules made
+      // of its records, which a removal deletes with them, are counted among
+      // what it would delete. The preview said "Lead: 2 to delete of 2", and
+      // the removal that followed deleted the set too.
+      ...(subject.runUserId ? { runUserId: subject.runUserId } : {}),
       signal: stop.signal,
     });
   } finally {

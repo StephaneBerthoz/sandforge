@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
-import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { nodeSeedRunCreations } from '../src/modules/seed/SeedRunCreations.js';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -273,6 +274,104 @@ describe('sandforge-seed --remove --preview', () => {
       'Account',
       'DuplicateRecordSet',
     ]);
+  });
+
+  describe('of a run a duplicate rule of the target made a set of', () => {
+    const SET = fakeId('0GK', 1);
+
+    beforeEach(() => {
+      org = new MemoryRemovalOrg({
+        Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }],
+        Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+        DuplicateRecordSet: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      });
+      const at = new Date(Date.now() - 10 * 60_000).toISOString();
+      org.add('Account', { Id: A1 }, at);
+      org.add('Account', { Id: A2 }, at);
+      org.add('Contact', { Id: C1, AccountId: A1 }, at);
+      org.add('Contact', { Id: C2, AccountId: A2 }, at);
+      org.add('DuplicateRecordSet', { Id: SET, LastModifiedById: MEMORY_ORG_USER }, at);
+      org.add(
+        'DuplicateRecordItem',
+        { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: SET },
+        at,
+      );
+      vi.mocked(removalOrg).mockReturnValue(org);
+    });
+
+    /** The run's file, as the run keeps it, with the user it wrote as. */
+    async function keptRunFile(runId: string): Promise<string> {
+      const runs = nodeSeedRunCreations(join(dir, 'journal'));
+      await runs.record({
+        runId,
+        targetOrgId: 'TGT',
+        startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+        finishedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+        status: 'success',
+        objectResults: [
+          { objectApiName: 'Account', createdIds: [A1, A2] },
+          { objectApiName: 'Contact', createdIds: [C1, C2] },
+        ],
+        runUserId: MEMORY_ORG_USER,
+      });
+      return runs.pathOf(runId);
+    }
+
+    const setOf = (answer: { preview: SeedRemovalPreview }) =>
+      answer.preview.objects.find((o) => o.objectApiName === 'DuplicateRecordSet');
+
+    it('counts the set among what it would delete, as the removal then deletes it', async () => {
+      // Run for real: "Lead: 2 to delete of 2", and the removal that followed
+      // deleted the set too.
+      const kept = summary();
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...kept,
+          result: { ...(kept.result as Record<string, unknown>), runUserId: MEMORY_ORG_USER },
+        }),
+      );
+
+      await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+      const answer = JSON.parse(stdout) as { preview: SeedRemovalPreview };
+      expect(setOf(answer)).toMatchObject({ planned: 1, toDelete: 1 });
+    });
+
+    it('reads the user the run wrote as from the run file its summary names, when the summary says none', async () => {
+      // Run for real, a summary printed without the user read the run's
+      // objects alone: "nothing fires on the 1 object(s)", the set unread.
+      writeFileSync(
+        file,
+        JSON.stringify(summary({ runFile: await keptRunFile('env-demo-accounts-1') })),
+      );
+
+      await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+      expect(automationRead).toHaveBeenCalledWith('TGT', [
+        'Contact',
+        'Account',
+        'DuplicateRecordSet',
+      ]);
+      expect(setOf(JSON.parse(stdout) as { preview: SeedRemovalPreview })).toMatchObject({
+        toDelete: 1,
+      });
+    });
+
+    it('takes no user from a run file of another run', async () => {
+      writeFileSync(file, JSON.stringify(summary({ runFile: await keptRunFile('another-run') })));
+
+      await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+      expect(automationRead).toHaveBeenCalledWith('TGT', ['Contact', 'Account']);
+      expect(setOf(JSON.parse(stdout) as { preview: SeedRemovalPreview })).toBeUndefined();
+    });
   });
 
   it('lists with --sweep what the sweep would take, and reads what fires on its objects with the run’s', async () => {

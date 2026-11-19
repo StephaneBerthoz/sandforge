@@ -6,6 +6,7 @@ import type { Connection } from 'jsforce';
 import type { ForgeTargetAutomation, MutedAutomation } from '@sandforge/shared';
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
+import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -965,6 +966,60 @@ describe('sandforge-sync --remove', () => {
       ]);
       expect(exit.stderr()).toContain('DuplicateRecordSet: Apex trigger SetAudit (before delete)');
       expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SET]);
+    });
+
+    it('reads the user the run wrote as from the run file its summary names, when the summary says none', async () => {
+      // Run for real, a seed's summary printed without the user read the
+      // run's objects alone: "nothing fires on the 1 object(s)", the set
+      // unread. A Sync summary was printed the same way.
+      const runs = nodeSyncRunCreations(join(dir, 'journal'));
+      const recorder = runs.recorder({
+        runId: 'sandforge-sync-1',
+        configId: 'sandforge-sync',
+        configName: 'sandforge-sync',
+        sourceOrgId: 'SRC',
+        targetOrgId: 'TGT',
+        startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+        runUserId: MEMORY_ORG_USER,
+      });
+      recorder.note('Account', [A1, A2]);
+      recorder.note('Contact', [C1]);
+      await recorder.end({ status: 'success' });
+      const kept = summary();
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...kept,
+          created: {
+            ...(kept.created as Record<string, unknown>),
+            runFile: runs.pathOf('sandforge-sync-1'),
+          },
+        }),
+      );
+      automationRead.mockResolvedValueOnce({
+        objectsRead: ['Contact', 'Account', 'DuplicateRecordSet'],
+        objects: [
+          {
+            objectApiName: 'DuplicateRecordSet',
+            flows: [],
+            triggers: [{ name: 'SetAudit', events: ['beforeDelete'] }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 3,
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect((automationRead.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual([
+        'Contact',
+        'Account',
+        'DuplicateRecordSet',
+      ]);
+      expect(exit.stderr()).toContain('DuplicateRecordSet: Apex trigger SetAudit (before delete)');
     });
 
     it('says the set on one line, without a line of it already gone', async () => {

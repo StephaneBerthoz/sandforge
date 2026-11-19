@@ -175,6 +175,20 @@ describe('a seed from the command line', () => {
     expect(runFile()?.runUserId).toBe(user);
   });
 
+  it('says in its summary the user the org says it writes as, as its file keeps it', async () => {
+    // The file kept it and the summary did not: a removal from the summary
+    // took the run for one whose user was not kept, and read nothing of the
+    // duplicate record sets it deletes with the records.
+    const org = fakeOrg();
+    const user = '005000000000007AAA';
+    Object.assign(org.conn, { identity: async () => ({ user_id: user }) });
+
+    await main(argv(2, '--json'));
+
+    const summary = JSON.parse(stdout.join('')) as { result: { runUserId?: string } };
+    expect(summary.result.runUserId).toBe(user);
+  });
+
   it('ends without an answer from an org that does not say who the session is', async () => {
     const org = fakeOrg();
     Object.assign(org.conn, { identity: () => new Promise(() => undefined) });

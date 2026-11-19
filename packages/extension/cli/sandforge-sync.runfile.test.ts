@@ -196,6 +196,22 @@ describe('the file a run of sandforge-sync keeps', () => {
     expect(kept?.runUserId).toBe(RUN_USER);
   });
 
+  it('says in its summary the user the target says it writes as, as its file keeps it', async () => {
+    // The file kept it and the summary did not: a removal from the summary
+    // took the run for one whose user was not kept, and read nothing of the
+    // duplicate record sets it deletes with the records.
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      return answered(config);
+    };
+
+    await run();
+
+    expect((JSON.parse(stdout) as { result: { runUserId?: string } }).result.runUserId).toBe(
+      RUN_USER,
+    );
+  });
+
   it('keeps it once its target says, past the run’s first line', async () => {
     let say: (who: { user_id: string }) => void = () => undefined;
     identity = () => new Promise((resolve) => (say = resolve));
