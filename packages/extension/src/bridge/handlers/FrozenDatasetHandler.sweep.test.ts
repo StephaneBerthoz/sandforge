@@ -543,6 +543,65 @@ describe('a sweep asked with the removal of a Frozen load', () => {
       expect(vi.mocked(removeRunRecords).mock.calls.at(-1)?.[2]).not.toHaveProperty('runUserId');
     });
 
+    describe('the duplicate record sets its removal takes with it', () => {
+      // Told the user the load wrote as, the removal takes the sets the
+      // target's duplicate rules made of its records (`duplicateSetsOf`):
+      // what the target runs as a set is deleted was read on the load's
+      // objects alone, a trigger on the sets neither named nor muted.
+      const SETS = 'DuplicateRecordSet';
+
+      it('reads what fires on them for the confirmation of a load that kept its user, and on none of one that did not', async () => {
+        const read = vi.fn(async () => AUTOMATION);
+        handler.setTargetAutomation({ read });
+        const ask = () =>
+          handler.handle(
+            buildMsg('frozen:remove:automation', {
+              targetOrgId: TARGET_ORG,
+              loadedAt: LAST_WRITE,
+            }),
+          );
+        const steps = () =>
+          posted<BaseMessage & { payload: { steps: { delete?: string[] } } }>(
+            'frozen:remove:automation:response',
+          ).at(-1)?.payload.steps.delete;
+
+        await ask();
+        expect(read).toHaveBeenLastCalledWith(TARGET_ORG, ['ServiceAppointment', 'WorkOrder']);
+        expect(steps()).not.toContain(SETS);
+
+        await loadedAs(USER);
+        await ask();
+
+        expect(read).toHaveBeenLastCalledWith(TARGET_ORG, [
+          'ServiceAppointment',
+          'WorkOrder',
+          SETS,
+        ]);
+        expect(steps()).toContain(SETS);
+      });
+
+      it('asks, before its first delete, about what fires on them as it deletes', async () => {
+        const read = vi.fn(async () => AUTOMATION);
+        handler.setTargetAutomation({ read });
+        const asked: Array<readonly string[]> = [];
+        handler.setRemovalAsker(async ({ steps }) => {
+          asked.push(steps.delete ?? []);
+          return { code: 'AUTOMATION_NOT_ACCEPTED', message: 'Not accepted.' };
+        });
+        await loadedAs(USER);
+
+        await remove();
+
+        expect(asked).toEqual([['ServiceAppointment', 'WorkOrder', SETS]]);
+        expect(read).toHaveBeenLastCalledWith(TARGET_ORG, [
+          'ServiceAppointment',
+          'WorkOrder',
+          SETS,
+        ]);
+        expect(ids('WorkOrder')).toEqual([WORK_ORDER]);
+      });
+    });
+
     it('keeps what the sweep found made for the load and left, and nothing it said gone', async () => {
       // A colleague edits the task after the load: the sweep keeps it. The
       // feed items went with the load's records, said gone already.

@@ -306,7 +306,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     expect(org.ids('Case')).toEqual([CASE]);
     // Once, on what both delete: the sweep's own read of what the load's
     // objects fire comes before it, and tells nothing of the asset.
-    expect(steps.at(-1)).toBe('read Account Asset Case');
+    expect(steps.at(-1)).toBe('read Account Asset Case DuplicateRecordSet');
   });
 
   it('gives a pipeline the code it was refused with before its first delete, under refused', async () => {
@@ -343,13 +343,15 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
 
     expect(stdout).toContain('Case: after delete: flow "Case audit"');
     expect(org.deletes).toEqual([]);
-    expect(steps).toEqual(['read Account Case']);
+    expect(steps).toEqual(['read Account Case DuplicateRecordSet']);
   });
 
   it('goes unasked where nothing fires, and says so', async () => {
     expect(await remove('--yes')).toBe(0);
 
-    expect(stdout).toContain('nothing fires on the 2 object(s) it writes records of');
+    // The account, the case, and the duplicate record sets the target's rules
+    // made of them, which the removal of a load that kept its user takes.
+    expect(stdout).toContain('nothing fires on the 3 object(s) it writes records of');
     expect(org.ids('Case')).toEqual([]);
     expect(org.ids('Account')).toEqual([]);
   });
@@ -536,7 +538,9 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     expect(org.ids('Case')).toEqual([]);
     expect(permissions.assignments()).toEqual([]);
     expect(steps.filter((step) => step === 'lease')).toHaveLength(1);
-    expect(steps.indexOf('read Account Asset Case')).toBeLessThan(steps.indexOf('lease'));
+    expect(steps.indexOf('read Account Asset Case DuplicateRecordSet')).toBeLessThan(
+      steps.indexOf('lease'),
+    );
     expect(steps.indexOf('lease')).toBeLessThan(steps.indexOf('delete Asset'));
     expect(steps.indexOf('delete Asset')).toBeLessThan(steps.indexOf('release'));
     expect(JSON.parse(stdout)).toMatchObject({
@@ -1153,8 +1157,8 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
   describe('at the question a removal asks without --yes', () => {
     it('asks for the name of the org last, once what fires is said', async () => {
       vi.mocked(typed).mockImplementation(async () => {
-        expect(stdout).toContain('nothing fires on the 2 object(s)');
-        expect(steps).toEqual(['read Account Case']);
+        expect(stdout).toContain('nothing fires on the 3 object(s)');
+        expect(steps).toEqual(['read Account Case DuplicateRecordSet']);
         return 'TGT';
       });
 
@@ -1188,7 +1192,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
 
       expect(process.exit).toHaveBeenCalledWith(2);
       expect(stderr).toContain('no terminal to answer: give --yes');
-      expect(stdout).toContain('nothing fires on the 2 object(s)');
+      expect(stdout).toContain('nothing fires on the 3 object(s)');
       expect(org.deletes).toEqual([]);
     });
 
@@ -1231,7 +1235,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
       expect(org.deletes).toEqual([]);
       expect(org.ids('Asset')).toEqual([ASSET]);
       expect(stderr).toContain('Asset: flow "Asset guard"');
-      expect(steps.at(-1)).toBe('read Account Asset Case');
+      expect(steps.at(-1)).toBe('read Account Asset Case DuplicateRecordSet');
       const answer = JSON.parse(stdout) as { refusals: string[] };
       expect(answer.refusals).toHaveLength(1);
       expect(answer.refusals[0]).toContain('Asset: flow "Asset guard"');
@@ -1250,7 +1254,7 @@ describe('sandforge-frozen remove, and what the target runs as the records go', 
     it('says what a mute would keep quiet, and assigns nothing', async () => {
       expect(await remove('--preview', '--mute-automation', '--json')).toBe(0);
 
-      expect(steps).toEqual(['read Account Case']);
+      expect(steps).toEqual(['read Account Case DuplicateRecordSet']);
       expect(permissions.assignments()).toEqual([]);
       expect(JSON.parse(stdout)).toMatchObject({ mutedAutomation: { state: 'nothing' } });
     });

@@ -751,14 +751,26 @@ function loadApiRequestsOf(check: ApiBudgetCheck, target: string): FrozenLoadApi
  * What each step of a load's removal writes: what it deletes — the platform's
  * copies of the load's lines on an object it never wrote among them —, what it
  * sets back to Draft first, and what its sweep deletes beside them.
+ *
+ * @param load - The load removed, when it is one (`RecordedLoad`): one that
+ *   kept the user it wrote as has its removal take the duplicate record sets
+ *   the target's rules made of its records (`removalSpanOf` hands the removal
+ *   that user), and what fires as they go is read with the rest. Read without
+ *   them, a trigger on the sets was neither named nor muted. A reload's purge
+ *   takes no set.
  */
 function removalStepsOfLoad(
   plan: readonly ForgeRunObjectRecords[],
   swept: readonly string[],
+  load?: Pick<RecordedLoad, 'runUserId'>,
 ): ForgeRemovalSteps {
   const removed = [...new Set(plan.map((object) => object.objectApiName))];
+  const userKept = Boolean(load?.runUserId);
   return removalStepsWithSweep(
-    { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
+    {
+      setToDraft: setBackToDraftOf(removed),
+      delete: objectsRemovedOf(removed, [], { userKept }),
+    },
     swept,
   );
 }
@@ -5691,7 +5703,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           }
           return;
         }
-        steps = removalStepsOfLoad(loadRecordsLeft(load), parsed.sweptObjects ?? []);
+        steps = removalStepsOfLoad(loadRecordsLeft(load), parsed.sweptObjects ?? [], load);
       }
       const reader = this.targetAutomation;
       const automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
@@ -6313,6 +6325,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const steps = removalStepsOfLoad(
         plan,
         sweeps.flatMap((one) => one.takes),
+        load,
       );
       if (
         (args.muteAutomation || asker) &&
