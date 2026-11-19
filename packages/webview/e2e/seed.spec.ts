@@ -179,7 +179,8 @@ test.describe('Forge — input form', () => {
 
     await expect(aiTab).toHaveAttribute('data-state', 'active');
     await expect(page.getByTestId('forge-ai-not-configured')).toBeVisible();
-    await expect(page.getByTestId('forge-ai-open-settings')).toBeVisible();
+    // In words: the tab's English comes with its chunk, after the page painted.
+    await expect(page.getByTestId('forge-ai-open-settings')).toHaveText('Open AI settings');
     await expect(page.getByTestId('forge-input-ai')).toHaveCount(0);
   });
 

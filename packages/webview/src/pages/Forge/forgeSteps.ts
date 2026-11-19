@@ -11,9 +11,11 @@ import { lazyOnce, loadOnce, type Thenable } from '../../utils/loadOnce';
  * So does their English: the words of the steps after the input live in
  * `forgeRun`, which a step loads with its chunk, and the page's own `forge`
  * holds the input's. Forge's 46 kB of English were parsed whole before the
- * input painted, the review's and the results' three quarters of it.
- * src/PanelRouter.english.test.ts reads each list against the keys the step
- * spells.
+ * input painted, the review's and the results' three quarters of it. The
+ * review and the results bring the words of the automation they mute, and the
+ * results those of the run's removal, which the input no longer loads before
+ * it paints (forgeInputPanels.ts). src/PanelRouter.english.test.ts reads each
+ * list against the keys the step spells.
  *
  * What the extension answers as the page moves to a step — the discovery's
  * graph, the plan, the run's progress and its end — is taken by the store,
@@ -31,7 +33,10 @@ const loadDiscovery = loadOnce(() =>
 
 /** Review: the plan, the gaps, the automation and the controls before a run. */
 const loadReview = loadOnce(() =>
-  withEnglish(() => import('./ForgeReview'), ['checkpointNotes', 'forgeRun'])().then((module) => ({
+  withEnglish(
+    () => import('./ForgeReview'),
+    ['automationMute', 'checkpointNotes', 'forgeRun', 'orgAutomation'],
+  )().then((module) => ({
     default: module.ForgeReview,
   })),
 );
@@ -45,11 +50,12 @@ const loadExecution = loadOnce(() =>
 
 /** Results: what the run wrote, and what it left. */
 const loadResults = loadOnce(() =>
-  withEnglish(() => import('./ForgeResults'), ['checkpointNotes', 'forgeRun', 'list'])().then(
-    (module) => ({
-      default: module.ForgeResults,
-    }),
-  ),
+  withEnglish(
+    () => import('./ForgeResults'),
+    ['automationMute', 'checkpointNotes', 'forgeRun', 'list', 'orgAutomation', 'runRemoval'],
+  )().then((module) => ({
+    default: module.ForgeResults,
+  })),
 );
 
 /*

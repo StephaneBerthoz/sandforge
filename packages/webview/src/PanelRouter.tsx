@@ -41,16 +41,12 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'org',
   ]),
   forge: page(() => import('./pages/Forge/ForgePage'), 'ForgePage', [
-    'ai',
-    'automationMute',
     'emptyState',
     'errors',
     'forge',
     'home',
     'howTo',
     'moduleSummary',
-    'orgAutomation',
-    'runRemoval',
     'runResults',
   ]),
   frozen: page(() => import('./pages/Frozen/FrozenPage'), 'FrozenPage', [

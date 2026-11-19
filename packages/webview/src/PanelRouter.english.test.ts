@@ -435,14 +435,45 @@ describe('the English a panel loads', () => {
       }),
     );
     const forge = parts.find((part) => label(part.file) === 'pages/Forge/ForgePage.tsx');
-    // Positive control: the four steps are read as parts of their own.
+    // Positive control: the four steps, and the input's past runs and AI
+    // draft, are read as parts of their own.
     expect(sorted(nestedParts(forge!).map((nested) => label(nested.file)))).toEqual([
+      'pages/Forge/ForgeAIPanel.tsx',
       'pages/Forge/ForgeDiscovery.tsx',
       'pages/Forge/ForgeExecution.tsx',
+      'pages/Forge/ForgeHistoryPanel.tsx',
       'pages/Forge/ForgeResults.tsx',
       'pages/Forge/ForgeReview.tsx',
     ]);
     expect(offenders).toEqual([]);
+  });
+
+  /*
+   * Forge's input step draws its past runs once it has painted, and its AI
+   * draft when that tab opens, each from a chunk of its own
+   * (forgeInputPanels.ts). Their English came with the page all the same: the
+   * removal of a past run's records, the automation it mutes and the AI
+   * draft's words, 45 kB of the 994 kB Forge parsed before its Record ID field
+   * painted, against the 1 MB a page may (scripts/check-webview-assets.mjs).
+   */
+  it('loads the English of the panels Forge’s input draws once it has painted with those panels', () => {
+    const forge = parts.find((part) => label(part.file) === 'pages/Forge/ForgePage.tsx');
+    const panels: Record<string, string[]> = {
+      'pages/Forge/ForgeHistoryPanel.tsx': ['automationMute', 'orgAutomation', 'runRemoval'],
+      'pages/Forge/ForgeAIPanel.tsx': ['ai'],
+    };
+    // Positive control: each panel renders the namespaces it is held to here.
+    for (const [file, namespaces] of Object.entries(panels)) {
+      const renders = namespacesOf(reach(join(WEBVIEW_SRC, file), true));
+      expect(namespaces.filter((namespace) => !renders.has(namespace))).toEqual([]);
+    }
+    const page = needed(forge!);
+    expect(page).toContain('forge');
+    expect(
+      Object.values(panels)
+        .flat()
+        .filter((namespace) => page.includes(namespace)),
+    ).toEqual([]);
   });
 
   /*
