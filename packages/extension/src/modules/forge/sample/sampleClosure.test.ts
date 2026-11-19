@@ -24,7 +24,12 @@ const R = (n: number) => fakeId('00K', n);
 const G = (n: number) => fakeId('701', n);
 const T = (n: number) => fakeId('00T', n);
 
-/** Accounts, contacts, campaigns, opportunities and their roles, cases and tasks. */
+/**
+ * Accounts, contacts, campaigns, opportunities and their roles, cases and
+ * tasks. A role's lookups say no cascade; the opportunity's and the
+ * contact's lists of their children do, as Salesforce describes them, and
+ * make the role a detail of each.
+ */
 function sales(records: Partial<Record<string, FakeObject['records']>>): FakeObject[] {
   return [
     {
@@ -38,12 +43,14 @@ function sales(records: Partial<Record<string, FakeObject['records']>>): FakeObj
       name: 'Contact',
       keyPrefix: '003',
       fields: [lookup('AccountId', 'Account')],
+      childRelationships: [cascadesTo('OpportunityContactRole', 'ContactId')],
       records: records.Contact ?? [],
     },
     {
       name: 'Opportunity',
       keyPrefix: '006',
       fields: [lookup('AccountId', 'Account'), lookup('CampaignId', 'Campaign')],
+      childRelationships: [cascadesTo('OpportunityContactRole', 'OpportunityId')],
       records: records.Opportunity ?? [],
     },
     {
@@ -252,6 +259,38 @@ describe('SampleClosure: down', () => {
       [1, 2, 3, 4, 5].every((n) => run.at('OpportunityLineItem', fakeId('00k', n)) !== undefined),
     ).toBe(true);
     expect(run.closure.cut.size).toBe(0);
+  });
+
+  // An opportunity's and a contact's describes both list their contact
+  // roles as cascading (`masterDetail.test.ts`): a role is a detail of each.
+  it('takes every contact role of an opportunity and of a contact, past the cap, as their details', async () => {
+    const run = await closed(
+      sales({
+        Account: [{ id: A(1) }],
+        Contact: [{ id: C(1), refs: { AccountId: A(1) } }, { id: C(2) }, { id: C(3) }],
+        Opportunity: [{ id: O(1), refs: { AccountId: A(1) } }, { id: O(2) }],
+        OpportunityContactRole: [
+          ...[1, 2, 3].map((n) => ({ id: R(n), refs: { OpportunityId: O(1), ContactId: C(n) } })),
+          ...[4, 5].map((n) => ({ id: R(n), refs: { OpportunityId: O(2), ContactId: C(1) } })),
+        ],
+      }),
+      [['Account', A(1)]],
+      { children: 1 },
+    );
+    for (const field of ['OpportunityId', 'ContactId']) {
+      expect(
+        run.links.linksOf.get('OpportunityContactRole')?.find((link) => link.field === field)
+          ?.masterDetail,
+      ).toBe(true);
+    }
+    // Under the account's opportunity, and under its contact: every role,
+    // the other opportunity and the other contacts of a role read up with it.
+    expect([1, 2, 3, 4, 5].every((n) => run.at('OpportunityContactRole', R(n)) !== undefined)).toBe(
+      true,
+    );
+    expect(run.thresholdOf('Opportunity', O(2))).toBe(0);
+    expect(run.closure.cut.has('OpportunityContactRole.OpportunityId')).toBe(false);
+    expect(run.closure.cut.has('OpportunityContactRole.ContactId')).toBe(false);
   });
 
   it('goes down from what it reached under a root, and gives each the least threshold of what it came under', async () => {
