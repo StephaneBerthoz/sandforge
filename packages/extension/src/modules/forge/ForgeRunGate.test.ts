@@ -68,6 +68,7 @@ import {
   writePlanLines,
   writePlanOf,
 } from './ForgeRunGate.js';
+import { noteStorageWritten } from './storageWritten.js';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 
 const KB = 1024;
@@ -301,6 +302,34 @@ describe('readDataStorage', () => {
       fileStorage: { maxMB: 1_000, remainingMB: 900 },
     });
     expect(request).toHaveBeenCalledWith({ method: 'GET', url: '/limits' });
+  });
+
+  it('takes off what runs from this machine wrote to the org that its limits have not counted yet', async () => {
+    const org = '00D000000000001AAA';
+    const request = vi.fn().mockResolvedValue({ DataStorageMB: { Max: 5, Remaining: 5 } });
+    // The run's gate read 5 left; it wrote 1.95 MB; the next gate still reads 5.
+    await expect(readDataStorage({ request, writtenTo: org })).resolves.toEqual({
+      maxMB: 5,
+      remainingMB: 5,
+    });
+    noteStorageWritten(org, { Contact: 998 });
+
+    const next = await readDataStorage({ request, writtenTo: org });
+    expect(next).toMatchObject({
+      maxMB: 5,
+      remainingMB: 5,
+      uncountedWrites: { runs: 1, minutes: 1 },
+    });
+    expect(next.uncountedWrites?.mb).toBeCloseTo(1.95, 2);
+    // Once the org counts it, nothing is taken off.
+    request.mockResolvedValue({ DataStorageMB: { Max: 5, Remaining: 3 } });
+    await expect(readDataStorage({ request, writtenTo: org })).resolves.toEqual({
+      maxMB: 5,
+      remainingMB: 3,
+    });
+    // Read for no org, nothing is taken off.
+    request.mockResolvedValue({ DataStorageMB: { Max: 5, Remaining: 5 } });
+    await expect(readDataStorage({ request })).resolves.toEqual({ maxMB: 5, remainingMB: 5 });
   });
 
   it('refuses an answer that does not say it, rather than taking it for enough', async () => {
@@ -1088,8 +1117,9 @@ describe('emailRefusal', () => {
 describe('storageCheckOf', () => {
   const plan = (megabytes: number) => ({ storageBytes: megabytes * MB });
 
-  it('fits under 80 % of what the target has left', () => {
-    expect(storageCheckOf(plan(8), { maxMB: 200, remainingMB: 10 }).verdict).toBe('fits');
+  it('fits under 80 % of what the target has left past the rounding of what it says', () => {
+    expect(storageCheckOf(plan(7.6), { maxMB: 200, remainingMB: 10 }).verdict).toBe('fits');
+    expect(storageCheckOf(plan(7.7), { maxMB: 200, remainingMB: 10 }).verdict).toBe('near');
   });
 
   it('comes near past 80 % of it, which a load leaves less of than the org says', () => {
@@ -1099,6 +1129,45 @@ describe('storageCheckOf', () => {
   it('exceeds past what is left, and on an org already over its allocation', () => {
     expect(storageCheckOf(plan(10.5), { maxMB: 200, remainingMB: 10 }).verdict).toBe('exceeds');
     expect(storageCheckOf(plan(0.01), { maxMB: 200, remainingMB: -4 }).verdict).toBe('exceeds');
+  });
+
+  it('counts what is left past the half MB the rounding of /limits may hide, and says it when it decides', () => {
+    // A trap org of 5 MB holding about 0.4 MB said 5 left: a plan of 4.8 MB
+    // went through a gate that read the 5 as room, and the org refused the
+    // last records it wrote.
+    const check = storageCheckOf(plan(4.8), { maxMB: 5, remainingMB: 5 });
+
+    expect(check).toMatchObject({ verdict: 'exceeds', remainingMB: 5, maxMB: 5 });
+    expect(storageRefusal(check, 'TGT')).toBe(
+      'The records to write take about 4.8 MB of data storage, and TGT has 5 MB left of 5 MB ' +
+        '(up to 0.5 MB of it may be taken already: Salesforce says it to the MB): leave objects ' +
+        'out, lower the records per object, or free data storage in TGT.',
+    );
+    expect(storageCheckOf(plan(3.6), { maxMB: 5, remainingMB: 5 }).verdict).toBe('fits');
+    expect(storageCheckOf(plan(3.7), { maxMB: 5, remainingMB: 5 }).verdict).toBe('near');
+  });
+
+  it('takes off what runs from this machine wrote that /limits has not counted yet, and says so', () => {
+    const uncountedWrites = { mb: 2.1, runs: 1, minutes: 2 };
+    const check = storageCheckOf(plan(3), { maxMB: 5, remainingMB: 5, uncountedWrites });
+
+    expect(check).toMatchObject({ verdict: 'exceeds', remainingMB: 5, uncountedWrites });
+    expect(storageRefusal(check, 'TGT')).toBe(
+      'The records to write take about 3 MB of data storage, and TGT has 5 MB left of 5 MB ' +
+        '(about 2.1 MB of it taken by what a run from this machine wrote to TGT in the last 2 ' +
+        'minute(s), which Salesforce has not counted yet): leave objects out, lower the records ' +
+        'per object, or free data storage in TGT.',
+    );
+    expect(
+      writePlanLines(
+        writePlanOf([{ objectApiName: 'Contact', rows: rows(30) }]),
+        storageCheckOf(plan(0.06), { maxMB: 5, remainingMB: 5, uncountedWrites }),
+        'TGT',
+      ),
+    ).toContain(
+      '  data storage of TGT: 5 MB left of 5 MB (about 2.1 MB of it taken by what a run from this ' +
+        'machine wrote to TGT in the last 2 minute(s), which Salesforce has not counted yet)',
+    );
   });
 
   it('says why it could not tell, and keeps the estimate', () => {
@@ -2010,7 +2079,7 @@ describe('what the gate says', () => {
   });
 
   it('says when the storage comes near what is left, or could not be read', () => {
-    const near = writePlanLines(plan, storageCheckOf(plan, { maxMB: 1, remainingMB: 0.08 }), 'T');
+    const near = writePlanLines(plan, storageCheckOf(plan, { maxMB: 1, remainingMB: 0.58 }), 'T');
     expect(near.at(-1)).toBe(
       '  that is more than 80 % of what T has left: Salesforce counts storage a while after a ' +
         'load, so less may be left than it says',

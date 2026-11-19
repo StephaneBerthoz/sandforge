@@ -199,10 +199,12 @@ import {
   updateStepsOf,
   type UpdatedAfterInsert,
   readApiBudget,
+  limitsOfOrg,
   readDataStorage,
   readEmailLimits,
   automationBytesOf,
   storageCheckOf,
+  storageCountedOf,
   storageRefusal,
   takeCheckpointFirst,
   writePlanOf,
@@ -5054,7 +5056,7 @@ export class ForgeHandler implements DomainHandler {
         this.deps.orgManager,
       );
       return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('forge:limits', () =>
-        readDataStorage(conn),
+        readDataStorage(limitsOfOrg(conn, targetOrgId)),
       );
     } catch (err: unknown) {
       return { unread: extractErrorMessage(err) };
@@ -5548,7 +5550,13 @@ export class ForgeHandler implements DomainHandler {
           ...(run.sentBefore !== undefined
             ? { sentBefore: () => ({ target: run.sentBefore ?? 0 }) }
             : {}),
-          target: { org: run.org, limits: this.limitsTransportOf(run.targetOrgId, run.lookup) },
+          target: {
+            org: run.org,
+            limits: limitsOfOrg(
+              this.limitsTransportOf(run.targetOrgId, run.lookup),
+              run.targetOrgId,
+            ),
+          },
           source: {
             org: whole.source,
             limits: this.limitsTransportOf(whole.sourceOrgId, run.lookup),
@@ -5649,6 +5657,7 @@ export class ForgeHandler implements DomainHandler {
         throw new ForgeRunGateError('STORAGE_EXCEEDED', `${refusal} Nothing was written.`, {
           estimateMB: Number(formatMB(storage.estimateMB)),
           remainingMB: storage.remainingMB,
+          ...storageCountedOf(storage),
         });
       }
       if (storage.verdict === 'near') {

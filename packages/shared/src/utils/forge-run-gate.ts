@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import type { UncountedWrites } from '../types/common.types.js';
 import type { ForgeSampleDraw, WholeOrgSampleLimit } from '../types/forge.types.js';
 
 /**
@@ -172,8 +173,17 @@ export interface ForgeRunGateStop {
    * what the target had left, in MB. What is left can be below zero: an org
    * over its allocation says so. `kind` says which storage: the data storage
    * when it is absent, as every refusal before files were weighed was.
+   * `uncountedWrites` and `roundingMB` say what the gate took off what the target
+   * said, when it did: what runs from this machine wrote that it has not
+   * counted yet, and the half MB of its rounding when that alone refused it.
    */
-  storage?: { estimateMB: number; remainingMB: number; kind?: 'data' | 'files' };
+  storage?: {
+    estimateMB: number;
+    remainingMB: number;
+    kind?: 'data' | 'files';
+    uncountedWrites?: UncountedWrites;
+    roundingMB?: number;
+  };
   /**
    * For a run cancelled at the confirmation of the tables it reads past the
    * most rows of one object it is set to read: that number, as the run held
@@ -337,6 +347,14 @@ const stopSchema = z.object({
       estimateMB: z.number().nonnegative(),
       remainingMB: z.number(),
       kind: z.enum(['data', 'files']).optional(),
+      uncountedWrites: z
+        .object({
+          mb: z.number().positive(),
+          runs: z.number().int().nonnegative(),
+          minutes: z.number().int().positive(),
+        })
+        .optional(),
+      roundingMB: z.number().positive().optional(),
     })
     .optional(),
   ceiling: z.number().int().positive().optional(),
@@ -451,6 +469,10 @@ export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
             estimateMB: storage.estimateMB,
             remainingMB: storage.remainingMB,
             ...(storage.kind !== undefined ? { kind: storage.kind } : {}),
+            ...(storage.uncountedWrites !== undefined
+              ? { uncountedWrites: storage.uncountedWrites }
+              : {}),
+            ...(storage.roundingMB !== undefined ? { roundingMB: storage.roundingMB } : {}),
           },
         }
       : {}),

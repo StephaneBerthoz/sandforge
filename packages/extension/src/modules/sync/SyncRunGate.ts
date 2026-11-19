@@ -68,6 +68,8 @@ import {
   formatMB,
   overEmailOf,
   storageCheckOf,
+  storageCountedOf,
+  storageCountedWords,
   takeCheckpointFirst,
   unreadEmailOf,
   writePlanOf,
@@ -1074,7 +1076,8 @@ export function syncGateStops(
       code: 'SYNC_STORAGE_EXCEEDED',
       message:
         `The records to write take about ${formatMB(storage.estimateMB)} MB of data storage, ` +
-        `and ${input.org} has ${storage.remainingMB} MB left of ${storage.maxMB} MB: leave ` +
+        `and ${input.org} has ${storage.remainingMB} MB left of ${storage.maxMB} MB` +
+        `${storageCountedWords(storageCountedOf(storage), input.org)}: leave ` +
         `objects out, narrow their filters, or free data storage in ${input.org}. To copy a ` +
         `sample of the source that fits ${input.org} instead, use Forge with Depth ALL and a ` +
         'sample that fits the target (sandforge clone --depth all --fit share). Nothing was ' +

@@ -21,6 +21,7 @@ import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { Services } from '../../services.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { buildLineageGraph, LineageStore } from './lineage.js';
+import { noteStorageWritten, writtenOfCounts } from '../forge/storageWritten.js';
 
 /** Entries kept; the oldest are dropped past it. */
 export { AUDIT_TRAIL_LIMIT };
@@ -253,6 +254,48 @@ export interface AuditDeps {
 }
 
 /**
+ * The runs that create or delete records in the org they write to, whose
+ * counts the next storage gate of that org takes off what its `/limits` say
+ * until Salesforce has counted them (`noteStorageWritten`). A pipeline's
+ * steps record their own runs; a deploy, a take or an export writes none, and
+ * a rehearsal rolls back what it creates.
+ */
+const RECORD_WRITES: ReadonlySet<AuditAction> = new Set<AuditAction>([
+  'seed_execute',
+  'sync_execute',
+  'backup_restore',
+  'delete_execute',
+  'forge_execute',
+  'seed_csv_import',
+  'seed_clone',
+  'autopilot_execute',
+  'frozen_load',
+  'realtime_sync',
+  'subject_erase',
+  'cleanup_delete',
+  'empty_undo',
+  'checkpoint_rewind',
+  'checkpoint_undo',
+  'checkpoint_replay',
+]);
+
+/**
+ * Note what a run created and deleted in its org, for the next storage gate
+ * of that org to take off what `/limits` says until Salesforce has counted
+ * it: what {@link recordWriteRun} does of every run, and a command line of a
+ * run it keeps no audit entry of. Never throws.
+ *
+ * @param now - When it ended (injected by tests).
+ */
+export function noteRunWritten(
+  run: Pick<WriteRun, 'action' | 'orgId' | 'objects'>,
+  now: Date = new Date(),
+): void {
+  if (!RECORD_WRITES.has(run.action)) return;
+  noteStorageWritten(run.orgId, writtenOfCounts(run.objects ?? []), { now });
+}
+
+/**
  * Record one write run: its entry in the audit trail, and its lineage.
  *
  * The one call every path that writes to an org makes, once per run, when
@@ -289,6 +332,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
     const sourceOrg = sourceOrgId !== undefined ? deps.orgManager.getOrg(sourceOrgId) : undefined;
     const sourceOrgAlias = sourceOrg ? orgDisplayName(sourceOrg) : undefined;
     const objects = run.objects ?? [];
+    noteRunWritten(run, now);
 
     new AuditTrailStore(deps.configStore).append({
       id: crypto.randomUUID(),

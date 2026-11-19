@@ -185,6 +185,23 @@ describe('SeedFitProposalCard', () => {
     expect(within(card).queryByRole('button', { name: 'Change the counts' })).toBeNull();
   });
 
+  it('says what it kept for what runs from this machine wrote that the org has not counted yet', () => {
+    const proposal = salesCloudOnADeveloperEdition();
+    render(
+      <SeedFitProposalCard
+        proposal={{ ...proposal, budget: { ...proposal.budget, uncountedMB: 2 } }}
+        org="my-dev-org"
+        onSeed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-fit-bound').textContent).toContain(
+      'once 0.5 MB is set aside for the rounding of what it says. Of what the org says it has ' +
+        'left, about 2 MB is taken by what runs from this machine wrote to it in the last 10 ' +
+        'minutes, which Salesforce has not counted yet.',
+    );
+  });
+
   it('says a share rounded down: never more than was kept', () => {
     render(
       <SeedFitProposalCard

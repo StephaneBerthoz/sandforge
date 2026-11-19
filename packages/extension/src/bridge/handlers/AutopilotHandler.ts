@@ -49,10 +49,12 @@ import { describedLookups } from '../../core/metadata/describedLookups.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   checkpointPartOf,
+  limitsOfOrg,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
   storageCheckOf,
+  storageCountedOf,
   type ApiBudget,
   type DataStorage,
   type StorageCheck,
@@ -1733,7 +1735,7 @@ export class AutopilotHandler implements DomainHandler {
         this.deps.orgManager,
       );
       return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('autopilot:limits', () =>
-        readDataStorage(conn),
+        readDataStorage(limitsOfOrg(conn, targetOrgId)),
       );
     } catch (err: unknown) {
       return { unread: extractErrorMessage(err) };
@@ -1876,7 +1878,9 @@ export class AutopilotHandler implements DomainHandler {
     const figures = {
       org: orgDisplayName(org, targetOrgId),
       estimateMB: check.estimateMB,
-      ...(check.verdict === 'unread' ? {} : { remainingMB: check.remainingMB, maxMB: check.maxMB }),
+      ...(check.verdict === 'unread'
+        ? {}
+        : { remainingMB: check.remainingMB, maxMB: check.maxMB, ...storageCountedOf(check) }),
     };
     // The refusal is said whatever its figures come to: without this, a read
     // that threw would leave the page waiting on a run that wrote nothing.

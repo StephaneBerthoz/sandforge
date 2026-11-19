@@ -35,14 +35,17 @@ import {
   confirmationStorageOf,
   countedStorageBytes,
   deliverabilityPartOf,
+  limitsOfOrg,
   readApiBudget,
   readDataStorage,
   storageCheckOf,
+  storageCountedOf,
+  storageCountedWords,
+  storageRoomMB,
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
 import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
-import { STORAGE_ROUNDING_MARGIN_MB } from '../../modules/forge/fitBudget.js';
 import { importRequestsEstimate, importRunReads } from '../../modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
@@ -104,14 +107,19 @@ function megabytesWords(mb: number): string {
 
 /**
  * How many of an import's rows the storage left holds, by the size its gate
- * gives them: what one part of a split file may hold. Counted on what
- * `/limits` says is left less the half MB its rounding may add
- * (`STORAGE_ROUNDING_MARGIN_MB`), as a fit counts it: counted on the whole
- * MB it says, a part of the size the refusal named could be refused again.
+ * gives them: what one part of a split file may hold. Counted on what the
+ * gate counts as left (`storageRoomMB`): what `/limits` says less the half MB
+ * its rounding may add and what runs from this machine wrote that it has not
+ * counted yet, as a fit counts it: counted on the whole MB it says, a part of
+ * the size the refusal named could be refused again.
  */
-function rowsThatFit(objectApiName: string, rows: number, remainingMB: number): number {
+function rowsThatFit(
+  objectApiName: string,
+  rows: number,
+  storage: Pick<DataStorage, 'remainingMB' | 'uncountedWrites'>,
+): number {
   const perRow = rows > 0 ? countedStorageBytes(objectApiName, { rows }) / rows : 0;
-  const room = Math.max(0, remainingMB - STORAGE_ROUNDING_MARGIN_MB);
+  const room = storageRoomMB(storage);
   return perRow > 0 ? Math.max(0, Math.floor((room * 1024 * 1024) / perRow)) : 0;
 }
 
@@ -599,9 +607,9 @@ export class SeedCsvHandler implements DomainHandler {
       // With a checkpoint asked, its requests among them, and the storage
       // read from the same answer, for its question to say; so for the
       // question about the emails.
-      const limits: DataStorage | { unread: string } = await readDataStorage(conn).catch(
-        (err: unknown) => ({ unread: extractErrorMessage(err) }),
-      );
+      const limits: DataStorage | { unread: string } = await readDataStorage(
+        limitsOfOrg(conn, parsed.orgId),
+      ).catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
       const budget: ApiBudget | { unread: string } | undefined = !('unread' in limits)
         ? limits.dailyApiRequests
         : await readApiBudget(conn).catch((err: unknown) => ({
@@ -623,11 +631,13 @@ export class SeedCsvHandler implements DomainHandler {
       );
       if (!parsed.externalIdField && storage.verdict === 'exceeds') {
         const rows = parsed.records.length;
-        const fitting = rowsThatFit(parsed.objectApiName, rows, storage.remainingMB);
+        const fitting = rowsThatFit(parsed.objectApiName, rows, storage);
+        const counted = storageCountedOf(storage);
         const message =
           `The import was refused before it wrote anything: its ${rows} rows take about ` +
           `${megabytesWords(storage.estimateMB)} MB of data storage, and ${targetName} has ` +
-          `${storage.remainingMB} MB left of ${storage.maxMB} MB, room for about ${fitting} of ` +
+          `${storage.remainingMB} MB left of ${storage.maxMB} MB` +
+          `${storageCountedWords(counted, targetName)}, room for about ${fitting} of ` +
           'them: split the file and import one part at a time, freeing data storage in between ' +
           'as needed. Nothing was written.';
         recordWriteRun(this.deps, {
@@ -643,6 +653,7 @@ export class SeedCsvHandler implements DomainHandler {
           estimateMB: storage.estimateMB,
           remainingMB: storage.remainingMB,
           maxMB: storage.maxMB,
+          ...counted,
         };
         sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, new Error(message), {
           code: CSV_STORAGE_EXCEEDED,

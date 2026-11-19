@@ -13,9 +13,10 @@
  * proposes.
  *
  * The budget is the share of what `/limits` says is left past which the gate
- * asks ({@link STORAGE_NEAR_SHARE}), once a margin for its rounding is taken
- * off ({@link STORAGE_ROUNDING_MARGIN_MB}, measured), or the bound asked of
- * the fit when lower; less what the records the
+ * asks ({@link STORAGE_NEAR_SHARE}), once a margin for its rounding and what
+ * runs from this machine wrote to the target that it has not counted yet are
+ * taken off (`storageRoomMB`), or the bound asked of the fit when lower; less
+ * what the records the
  * target's flows still create under the kept ones take. Only what still runs
  * once the run's mute holds is counted (`stillRunningOf`): what the mute keeps
  * quiet creates nothing.
@@ -30,20 +31,15 @@ import {
 import {
   API_BUDGET_NEAR_SHARE,
   STORAGE_NEAR_SHARE,
+  STORAGE_ROUNDING_MARGIN_MB,
   countedStorageBytes,
+  formatMB,
+  storageRoomMB,
   type ApiBudget,
   type DataStorage,
   type RunRequestParts,
 } from './ForgeRunGate.js';
-
-/**
- * MB kept off what `/limits` says is left for its rounding. `DataStorageMB`
- * answers whole MB: its `Remaining` is the org's maximum less its usage
- * rounded to the nearest MB, so up to half a MB may be said that is not
- * there. Measured on a scratch org of 500 MB: 1,500 contacts, about 2.93 MB,
- * left 497; a trap org of 5 MB holding about 0.4 MB said 5 left.
- */
-export const STORAGE_ROUNDING_MARGIN_MB = 0.5;
+import { UNCOUNTED_WINDOW_MINUTES } from './storageWritten.js';
 
 /**
  * What a fit says of the storage `/limits` says is left, of `target`: it
@@ -51,20 +47,34 @@ export const STORAGE_ROUNDING_MARGIN_MB = 0.5;
  * insert of 1,500 contacts a scratch org still said 500 of 500, seventy-six
  * seconds after, 497; but a Developer Edition of 5 MB still said 5 left a
  * hundred seconds after a load of 1.95 MB, twice, and 2 only 384 seconds
- * after it. Said "up to 60 seconds", the line promised a second run started
- * a minute after the first would read what it left. No wait of the product
- * rests on it: a run reads `/limits` as it starts, whenever that is.
+ * after it. What runs from this machine wrote to it in the last
+ * {@link UNCOUNTED_WINDOW_MINUTES} minutes is taken off until it counts it
+ * (`storageWritten`); what anything else loaded, it cannot know of.
  */
 export function storageRecountWords(target: string): string {
   return (
     `Salesforce can take several minutes to count a load in what ${target} says it has ` +
-    'left: a run started sooner after another may read room it no longer has'
+    `left: what runs from this machine wrote to it in the last ${UNCOUNTED_WINDOW_MINUTES} ` +
+    'minutes and it has not counted yet is taken off, a load from anywhere else is not'
   );
+}
+
+/**
+ * What a fit's line says it kept, beside the rounding, for what runs from
+ * this machine wrote to the target that it has not counted yet: ", 2 MB for
+ * what runs from this machine wrote to it that Salesforce has not counted
+ * yet". Nothing when it kept none.
+ */
+export function uncountedFitWords(budget: Pick<StorageFitBudget, 'uncountedMB'>): string {
+  return budget.uncountedMB !== undefined && budget.uncountedMB > 0
+    ? `, ${formatMB(budget.uncountedMB)} MB for what runs from this machine wrote to it that ` +
+        'Salesforce has not counted yet'
+    : '';
 }
 
 /** What {@link fitBudgetOf} is given: what the target says it has, and what is asked of the fit. */
 export interface FitBudgetInput {
-  storage: Pick<DataStorage, 'maxMB' | 'remainingMB'> | { unread: string };
+  storage: Pick<DataStorage, 'maxMB' | 'remainingMB' | 'uncountedWrites'> | { unread: string };
   /** The most MB asked of the run (`--fit-within`), beside what the org has left. */
   withinMB?: number;
   /** The target's daily API requests, when read; the fit then bounds the run's own part. */
@@ -83,7 +93,7 @@ export interface FitBudget {
   bytes: number;
   terms: Pick<
     StorageFitBudget,
-    'remainingMB' | 'maxMB' | 'share' | 'roundingMB' | 'withinMB' | 'limitedBy'
+    'remainingMB' | 'maxMB' | 'share' | 'roundingMB' | 'uncountedMB' | 'withinMB' | 'limitedBy'
   >;
   /**
    * The most API requests the run's own part may take for the run to pass
@@ -96,8 +106,8 @@ export interface FitBudget {
 }
 
 /**
- * The budget of a fit: `min(withinMB, 0.8 × (remaining − 0.5)) MB`, the
- * room of the target's automation to come off it as the records are chosen
+ * The budget of a fit: `min(withinMB, 0.8 × (remaining − 0.5 − uncounted)) MB`,
+ * the room of the target's automation to come off it as the records are chosen
  * ({@link roomBytesOf}), and the run's own API requests that leave a tenth of
  * the day once the other parts are counted. A target that would not say its
  * storage is fitted to the MB asked (`withinMB`), and leaves nothing to fit to
@@ -117,9 +127,8 @@ export function fitBudgetOf(input: FitBudgetInput): FitBudget | { unread: string
       limitedBy: 'within',
     });
   }
-  const { remainingMB, maxMB } = input.storage;
-  const storageBytes =
-    STORAGE_NEAR_SHARE * Math.max(0, remainingMB - STORAGE_ROUNDING_MARGIN_MB) * BYTES_PER_MB;
+  const { remainingMB, maxMB, uncountedWrites } = input.storage;
+  const storageBytes = STORAGE_NEAR_SHARE * storageRoomMB(input.storage) * BYTES_PER_MB;
   const withinBytes =
     input.withinMB !== undefined ? Math.max(0, input.withinMB) * BYTES_PER_MB : Infinity;
   const limitedBy = withinBytes < storageBytes ? 'within' : 'storage';
@@ -128,6 +137,7 @@ export function fitBudgetOf(input: FitBudgetInput): FitBudget | { unread: string
     maxMB,
     share: STORAGE_NEAR_SHARE,
     roundingMB: STORAGE_ROUNDING_MARGIN_MB,
+    ...(uncountedWrites ? { uncountedMB: uncountedWrites.mb } : {}),
     ...(input.withinMB !== undefined ? { withinMB: input.withinMB } : {}),
     limitedBy,
   };

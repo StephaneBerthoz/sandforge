@@ -323,7 +323,11 @@ import {
 import { nodeSyncRunCreations, type SyncRunKept } from '../src/modules/sync/SyncRunCreations.js';
 import { readRunUser } from '../src/modules/sync/runUser.js';
 import { SEED_RUNS_DIR } from '../src/modules/seed/SeedRunCreations.js';
-import { ABORTED_BEFORE_START, recordWriteRun } from '../src/modules/audit/auditTrail.js';
+import {
+  ABORTED_BEFORE_START,
+  noteRunWritten,
+  recordWriteRun,
+} from '../src/modules/audit/auditTrail.js';
 import type { AuditDeps, WriteRun } from '../src/modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
@@ -369,6 +373,7 @@ import {
   removalAutomationLines,
   removalAutomationRefusal,
   runBypassesOf,
+  limitsOfOrg,
   readDataStorage,
   readEmailLimits,
   removalRiskLines,
@@ -376,6 +381,9 @@ import {
   sendersOfNothingWrittenLine,
   automationBytesOf,
   storageCheckOf,
+  storageCountedOf,
+  storageCountedWords,
+  storageRoomMB,
   storageRefusal,
   storageTakesWords,
   writePlanLines,
@@ -3842,14 +3850,19 @@ export function auditDepsOf(path: string, orgs: ReadonlyMap<string, AuditedOrg>)
 /**
  * Add one run's entry to the audit trail `--audit` keeps, as the panel adds
  * its own (`recordWriteRun`); nothing without the flag. A file that can no
- * longer be written is said, and the run's own outcome stands.
+ * longer be written is said, and the run's own outcome stands. With the flag
+ * or without, what the run created and deleted is noted for the next storage
+ * gate of its org (`noteRunWritten`), as the panel notes it.
  */
 function recordCliRun(
   path: string | undefined,
   orgs: ReadonlyMap<string, AuditedOrg>,
   run: WriteRun,
 ): void {
-  if (!path) return;
+  if (!path) {
+    noteRunWritten(run);
+    return;
+  }
   try {
     recordWriteRun(auditDepsOf(path, orgs), run);
   } catch (err: unknown) {
@@ -5895,7 +5908,8 @@ export function rootsStorageRefusal(
   const objects = `leave objects out (${ownOptionWords('--exclude-object')})`;
   return (
     `The records to write take ${storageTakesWords(check)}, and ` +
-    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    `${storageCountedWords(storageCountedOf(check), target)}: ` +
     (fewer !== undefined
       ? `${fewer}; or ${objects}, or free data storage in ${target}.`
       : `${oneRootTakesMore(roots)}: ${objects}, clone less deep ` +
@@ -5938,7 +5952,8 @@ function wholeOrgStorageRefusal(check: StorageCheck, target: string): string | u
   if (check.verdict !== 'exceeds') return undefined;
   return (
     `The records to write take ${storageTakesWords(check)}, and ` +
-    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: copy a sample of the org ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    `${storageCountedWords(storageCountedOf(check), target)}: copy a sample of the org ` +
     'that fits it (--fit share, its dry run first), leave objects out (--exclude-object) or ' +
     `narrow them (--filter), or free data storage in ${target}.`
   );
@@ -6191,6 +6206,12 @@ function sampleBudgetWords(sample: WholeOrgSample, target: string): string {
     `${percentOf(budget.share ?? 0)} % of the ${budget.remainingMB} MB ${target} has left` +
       (budget.maxMB !== undefined ? ` of ${budget.maxMB} MB` : ''),
     ...(budget.roundingMB !== undefined ? [`${budget.roundingMB} MB off for rounding`] : []),
+    ...(budget.uncountedMB !== undefined && budget.uncountedMB > 0
+      ? [
+          `${formatMB(budget.uncountedMB)} MB off for what runs from this machine wrote to ` +
+            'it that Salesforce has not counted yet',
+        ]
+      : []),
     ...(budget.automationMB !== undefined && budget.automationMB > 0
       ? [`${formatMB(budget.automationMB)} MB for what its automation creates`]
       : []),
@@ -13611,6 +13632,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // and to what the target has left. A dry run says what a real run would
   // meet there, and writes nothing.
   const targetConn = conns.get(args.target)!;
+  // Its limits as a gate reads them, by its own id: typed for a run, as the
+  // CLI shows it for a dry run. What runs from this machine wrote to it and
+  // Salesforce has not counted yet is said with what it has left, and taken
+  // off it: read straight after a run, it still said the room that run took.
+  const targetLimits = limitsOfOrg(targetConn, targetOrgId ?? targetOrg.orgId);
   /**
    * What a dry run's gate counted as the write would have begun: per object
    * the records, the storage they take and the emails they send, and in all
@@ -13763,7 +13789,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ...(sampled ? { sample: sampled } : {}),
         ...(sampled && args.sample ? { sampleAsked: sampleAskedOf(args.sample) } : {}),
         automation,
-        target: { org: args.target, limits: targetConn },
+        target: { org: args.target, limits: targetLimits },
         source: { org: args.source, limits: connOf(conns, args.source) },
       });
       priced = pricedOfTheDryRun(dry);
@@ -13772,7 +13798,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       stops = dry.wouldBeRefused;
     } else {
       const limits: DataStorage | { unread: string } =
-        await readDataStorage(targetConn).catch(unreadOf);
+        await readDataStorage(targetLimits).catch(unreadOf);
       const budget: ApiBudget | { unread: string } | undefined =
         'unread' in limits
           ? await readApiBudget(targetConn).catch(unreadOf)
@@ -13824,6 +13850,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
                 storage: {
                   estimateMB: Number(formatMB(storageCheck.estimateMB)),
                   remainingMB: storageCheck.remainingMB,
+                  ...storageCountedOf(storageCheck),
                 },
               },
             ]
@@ -14018,7 +14045,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
     try {
-      storage = await readDataStorage(targetConn);
+      storage = await readDataStorage(targetLimits);
     } catch (err: unknown) {
       storage = { unread: extractErrorMessage(err) };
     }
@@ -14128,7 +14155,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       check.verdict === 'exceeds'
         ? fewerRootsOf(boundary, rootsQuery, {
             taken: check.estimateMB,
-            room: check.remainingMB,
+            room: storageRoomMB(check),
             each: (megabytes) => `about ${formatMB(megabytes)} MB`,
             past: `what ${args.target} has left`,
           })
@@ -14583,7 +14610,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     sampleStream = {
       options: sampleOptionsOfTheLine(sample),
       budget: async () => {
-        const storage = await readDataStorage(targetConn).catch(unreadOf);
+        const storage = await readDataStorage(targetLimits).catch(unreadOf);
         // The target's daily requests and Bulk API batches hold the records
         // the sample writes as its gate holds them: read with the storage,
         // or the requests on their own when it could not be, as the gate

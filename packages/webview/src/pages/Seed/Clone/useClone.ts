@@ -14,6 +14,7 @@ import { formatNumber, roundedUpMegabytes } from '../../../utils/formatters';
 import { listWords } from '../../../utils/listWords';
 import { objectAdminText } from '../../../utils/objectAdminText';
 import { panelRefusalWords, runCheckpointOf } from '../../../utils/runCheckpoint';
+import { storageCountedWords } from '../../../utils/storageCounted';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -126,7 +127,7 @@ function storageRefusal(
   ) {
     return undefined;
   }
-  return t(key, {
+  const said = t(key, {
     org,
     estimate: roundedUpMegabytes(estimateMB),
     remaining: formatNumber(remainingMB),
@@ -143,6 +144,8 @@ function storageRefusal(
       (key) => t(key),
     ),
   });
+  // What the gate took off what the target says it has left, said after.
+  return said + storageCountedWords(payload, t, roundedUpMegabytes);
 }
 
 /**

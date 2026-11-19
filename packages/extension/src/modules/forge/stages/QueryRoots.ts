@@ -42,6 +42,9 @@ import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import { compareIds, idKey } from '../sample/sampleRank.js';
 import {
   formatMB,
+  storageCountedOf,
+  storageCountedWords,
+  storageRoomMB,
   storageTakesWords,
   type ForgeGateStop,
   type StorageCheck,
@@ -259,7 +262,8 @@ export function rootsStorageStop(
   roots: { objectApiName: string; count: number },
 ): ForgeGateStop | undefined {
   if (check.verdict !== 'exceeds') return undefined;
-  const fits = rootsThatFit(roots.count, check.estimateMB, check.remainingMB);
+  const fits = rootsThatFit(roots.count, check.estimateMB, storageRoomMB(check));
+  const counted = storageCountedOf(check);
   const chosen = `the ${roots.count} ${roots.objectApiName} records the query chooses`;
   const through =
     fits >= 1
@@ -272,10 +276,12 @@ export function rootsStorageStop(
     code: 'STORAGE_EXCEEDED',
     message:
       `The records to write take ${storageTakesWords(check)}, and ${target} has ` +
-      `${check.remainingMB} MB left of ${check.maxMB} MB: ${through} ${NOTHING_WRITTEN}`,
+      `${check.remainingMB} MB left of ${check.maxMB} MB${storageCountedWords(counted, target)}: ` +
+      `${through} ${NOTHING_WRITTEN}`,
     storage: {
       estimateMB: Number(formatMB(check.estimateMB)),
       remainingMB: check.remainingMB,
+      ...counted,
     },
     ...(rootsOf(roots.objectApiName).roots
       ? { roots: { objectApiName: roots.objectApiName, ...(fits >= 1 ? { fits } : {}) } }

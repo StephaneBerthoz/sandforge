@@ -59,6 +59,28 @@ describe('ForgeRunGateNotice', () => {
     );
   });
 
+  it('says what the gate took off what the target says it has left: what a run before wrote, and the rounding', () => {
+    // 3 MB refused with 5 MB said left, minutes after a run took 2 of them.
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'STORAGE_EXCEEDED',
+        storage: {
+          estimateMB: 3,
+          remainingMB: 5,
+          uncountedWrites: { mb: 2.1, runs: 1, minutes: 2 },
+          roundingMB: 0.5,
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+      'The run was refused before it wrote anything: its records take about 3 MB of data storage, and the target org has 5 MB left. Leave objects out, lower the records per object, or free data storage in the target org. ' +
+        'Of what the org says it has left, about 2.1 MB is taken by what runs from this machine wrote to it in the last 10 minutes, which Salesforce has not counted yet. ' +
+        'Salesforce says what is left rounded to the MB: up to 0.5 MB of it may be taken already.',
+    );
+  });
+
   it.each([
     [
       'AUTOMATION_DECLINED' as const,

@@ -291,6 +291,20 @@ export interface StorageRoomNotCounted {
 }
 
 /**
+ * Of what an org's `/limits` say it has left, what runs from this machine
+ * wrote to it that they have not counted yet: Salesforce counts a load
+ * minutes after it, and a storage gate takes it off what the org says.
+ */
+export interface UncountedWrites {
+  /** What those runs wrote, in MB, that the org still says is left. */
+  mb: number;
+  /** The runs that wrote it. */
+  runs: number;
+  /** Minutes since the first of them ended, rounded up. */
+  minutes: number;
+}
+
+/**
  * The data storage a run fitted to the target may take, and what it is drawn
  * from, as the fit's line says it: "fits 16.4 MB: 80 % of the 21 MB the org
  * says it has left, 0.5 MB kept for its rounding, 0 MB for its flows (muted)".
@@ -309,6 +323,11 @@ export interface StorageFitBudget {
   share: number;
   /** MB kept for the rounding of `/limits`, which answers in whole MB. */
   roundingMB: number;
+  /**
+   * MB kept for what runs from this machine wrote to the org that `/limits`
+   * has not counted yet (`UncountedWrites`); absent when nothing is.
+   */
+  uncountedMB?: number;
   /** The most MB asked of the fit (`--fit-within`); absent when not asked. */
   withinMB?: number;
   /**

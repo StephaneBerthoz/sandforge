@@ -9,6 +9,7 @@ import type {
 import { Button } from '../../components/ui/Button';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { formatNumber, roundedUpMegabytes, shareRoundedDown } from '../../utils/formatters';
+import { storageCountedWords } from '../../utils/storageCounted';
 
 /**
  * The refusals of a seed a smaller seed answers — its records past the data
@@ -188,14 +189,21 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
   } else if (budget.limitedBy === 'within') {
     bound = t('seed.fit.boundWithin', { fits });
   } else {
-    bound = t('seed.fit.boundStorage', {
-      fits,
-      near: shareRoundedDown(budget.share),
-      remaining: formatNumber(budget.remainingMB ?? 0),
-      max: formatNumber(budget.maxMB ?? 0),
-      rounding: formatNumber(budget.roundingMB),
-      org,
-    });
+    bound =
+      t('seed.fit.boundStorage', {
+        fits,
+        near: shareRoundedDown(budget.share),
+        remaining: formatNumber(budget.remainingMB ?? 0),
+        max: formatNumber(budget.maxMB ?? 0),
+        rounding: formatNumber(budget.roundingMB),
+        org,
+      }) +
+      // What it kept for what runs from this machine wrote that the org has not counted yet.
+      storageCountedWords(
+        { uncountedMB: budget.uncountedMB },
+        (key, options) => t(key, options),
+        roundedUpMegabytes,
+      );
   }
 
   let room: string;

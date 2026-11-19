@@ -124,6 +124,26 @@ describe('loadOrg', () => {
     expect(await loadOrg('SCRATCH', readToken)).not.toHaveProperty('scratch');
   });
 
+  it("keeps the org's own id the display shows, for a gate to find what runs wrote to it", async () => {
+    const shown = (id?: unknown) =>
+      mockExecFileSync.mockImplementation((() =>
+        JSON.stringify({
+          result: {
+            instanceUrl: 'https://example.my.salesforce.com',
+            username: 'user@example.com',
+            ...(id !== undefined ? { id } : {}),
+          },
+        })) as unknown as typeof execFileSync);
+    const readToken = vi.fn().mockResolvedValue({ accessToken: LIVE_TOKEN });
+
+    shown('00D000000000001AAA');
+    expect((await loadOrg('TARGET-DEV', readToken)).orgId).toBe('00D000000000001AAA');
+    shown(42);
+    expect(await loadOrg('TARGET-DEV', readToken)).not.toHaveProperty('orgId');
+    shown();
+    expect(await loadOrg('TARGET-DEV', readToken)).not.toHaveProperty('orgId');
+  });
+
   it('says a scratch org past its date is gone, before reading a token no sign-in can renew', async () => {
     // What `sf org display` showed of an expired scratch org on 2026-11-13.
     const shown = (result: Record<string, unknown>) =>

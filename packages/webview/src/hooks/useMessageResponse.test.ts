@@ -849,6 +849,62 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it('says what the gate took off what the org says it has left, after a seed, an import or an Autopilot run refused for their storage', () => {
+      // 3 MB refused with 5 MB said left, minutes after a run took 2 of them.
+      const said = (code: string, figures: Record<string, unknown>): string | null => {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(
+            'org:error',
+            {
+              message: 'Refused.',
+              code,
+              estimateMB: 3,
+              remainingMB: 5,
+              maxMB: 5,
+              org: 'my-dev-org',
+              uncountedWrites: { mb: 2, runs: 1, minutes: 2 },
+              roundingMB: 0.5,
+              ...figures,
+            },
+            'req-1',
+          );
+        });
+        return result.current.error;
+      };
+      const taken =
+        ` ${i18n.t('common.refusal.storageUncounted', { mb: '2', window: 10 })}` +
+        ` ${i18n.t('common.refusal.storageRounding', { mb: '0.5' })}`;
+
+      expect(said('SEED_STORAGE_EXCEEDED', {})).toBe(
+        i18n.t('common.refusal.seedStorageExceeded', {
+          estimate: 3,
+          remaining: 5,
+          max: 5,
+          org: 'my-dev-org',
+        }) + taken,
+      );
+      expect(said('CSV_STORAGE_EXCEEDED', { rows: 1_536, fitting: 1_280 })?.endsWith(taken)).toBe(
+        true,
+      );
+      expect(said('AUTOPILOT_STORAGE_EXCEEDED', {})?.endsWith(taken)).toBe(true);
+      // Nothing taken off, nothing more said.
+      expect(
+        said('SEED_STORAGE_EXCEEDED', { uncountedWrites: undefined, roundingMB: undefined }),
+      ).toBe(
+        i18n.t('common.refusal.seedStorageExceeded', {
+          estimate: 3,
+          remaining: 5,
+          max: 5,
+          org: 'my-dev-org',
+        }),
+      );
+    });
+
     it('says how to fit an Autopilot plan the target would not say the storage of, and what to do when the source refused its read', () => {
       // Each said the plan was not fitted, and nothing of what to do next.
       const said = (code: string): string => {

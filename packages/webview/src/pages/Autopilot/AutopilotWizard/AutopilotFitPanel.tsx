@@ -13,6 +13,7 @@ import { SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { formatNumber, roundedUpMegabytes, shareRoundedDown } from '../../../utils/formatters';
+import { storageCountedWords } from '../../../utils/storageCounted';
 
 /*
  * Fit to storage, on the review step: what the plan comes to against its
@@ -282,14 +283,21 @@ export const AutopilotFitReportView = React.forwardRef<
       bound = t('autopilot.fit.boundCaps', { fits });
       break;
     default:
-      bound = t('autopilot.fit.boundStorage', {
-        fits,
-        near: shareRoundedDown(budget.share),
-        remaining: formatNumber(budget.remainingMB ?? 0),
-        max: formatNumber(budget.maxMB ?? 0),
-        rounding: formatNumber(budget.roundingMB),
-        org,
-      });
+      bound =
+        t('autopilot.fit.boundStorage', {
+          fits,
+          near: shareRoundedDown(budget.share),
+          remaining: formatNumber(budget.remainingMB ?? 0),
+          max: formatNumber(budget.maxMB ?? 0),
+          rounding: formatNumber(budget.roundingMB),
+          org,
+        }) +
+        // What it kept for what runs from this machine wrote that the org has not counted yet.
+        storageCountedWords(
+          { uncountedMB: budget.uncountedMB },
+          (key, options) => t(key, options),
+          roundedUpMegabytes,
+        );
   }
 
   let room: string;

@@ -100,7 +100,11 @@ import {
   AUTOPILOT_FIT_CODES,
   AUTOPILOT_GATE_CODES,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
-import { fitBudgetOf, storageRecountWords } from '../src/modules/forge/fitBudget.js';
+import {
+  fitBudgetOf,
+  storageRecountWords,
+  uncountedFitWords,
+} from '../src/modules/forge/fitBudget.js';
 import {
   CHECKPOINT_REFUSED,
   DEFAULT_MAX_TOTAL,
@@ -110,6 +114,7 @@ import {
   emailCheckLines,
   emailRefusal,
   formatMB,
+  limitsOfOrg,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
@@ -122,6 +127,7 @@ import {
   type ApiBudgetCheck,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { emptyCounts, noteRunWritten } from '../src/modules/audit/auditTrail.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { apiRequestsLine, journalDirOf, targetAutomationReader } from './sandforge-clone.js';
 import { fitOfArgs, type CliFit } from './sandforge-seed.js';
@@ -741,7 +747,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   /** What the target says of its storage, or why it said nothing. */
   const readStorage = async (): Promise<DataStorage | { unread: string }> => {
     try {
-      return await readDataStorage(targetConn);
+      return await readDataStorage(limitsOfOrg(targetConn, typedTarget?.id ?? targetSession.orgId));
     } catch (err: unknown) {
       return { unread: extractErrorMessage(err) };
     }
@@ -1229,6 +1235,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       });
   } finally {
     releaseStop();
+    // What it created, however it ended, for the next storage gate of the
+    // target to take off what `/limits` says until Salesforce counts it.
+    if (typedTarget) {
+      noteRunWritten({
+        action: 'autopilot_execute',
+        orgId: typedTarget.id,
+        objects: [...created].map(([objectApiName, ids]) => ({
+          ...emptyCounts(objectApiName),
+          created: ids.length,
+        })),
+      });
+    }
     // Kept once the run wrote a record, whatever became of it after;
     // deleted when it wrote none — its lease refused, a stop before its
     // first write. Only the deletion can fail: then it is kept, and said.
@@ -1361,7 +1379,8 @@ export function autopilotFitLines(fit: AutopilotPlanFit, target: string, muted: 
     storage:
       `the largest that fits ${fits} MB: ${budget.share * 100} % of the ${budget.remainingMB} ` +
       `MB ${target} says it has left of ${budget.maxMB}, ${budget.roundingMB} MB kept first for ` +
-      'the rounding of what it says',
+      'the rounding of what it says' +
+      uncountedFitWords(budget),
   };
   const room =
     fit.automationUnread !== undefined

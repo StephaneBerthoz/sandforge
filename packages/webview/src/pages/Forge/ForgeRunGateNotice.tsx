@@ -17,6 +17,7 @@ import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
+import { storageCountedWords } from '../../utils/storageCounted';
 import { useForgeRunGateStore } from './runGate';
 import { clonesWholeOrg } from './forgeRunConfig';
 import { startForgeRun } from './startForgeRun';
@@ -214,7 +215,7 @@ export function gateStopSentence(
   run: { checkpointAsked: boolean; wholeOrg: boolean; muteOffered?: boolean; sampled?: boolean },
 ): string {
   const locale = uiLocale();
-  return t(
+  const said = t(
     sentenceOf(
       stop,
       run.checkpointAsked,
@@ -256,6 +257,15 @@ export function gateStopSentence(
       fits: String(stop.roots?.fits ?? 0),
     },
   );
+  // What the gate took off what the target says, said after a refusal for
+  // its storage: 3 MB refused with 5 MB left reads as a mistake otherwise.
+  return stop.code === 'STORAGE_EXCEEDED'
+    ? `${said}${storageCountedWords(
+        stop.storage,
+        (key, options) => t(key, options),
+        (mb) => mb.toLocaleString(locale),
+      )}`
+    : said;
 }
 
 /**

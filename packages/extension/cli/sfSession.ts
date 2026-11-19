@@ -40,6 +40,12 @@ export interface SfOrg {
    * nothing the org itself says tells the two apart.
    */
   scratch?: true;
+  /**
+   * The org's own id, as `sf org display` shows it: what a gate notes what it
+   * says of its storage under, and finds what runs wrote to it by. Absent
+   * when the display shows none.
+   */
+  orgId?: string;
 }
 
 /** Reads a live token for an org through the `sf` CLI. */
@@ -92,6 +98,7 @@ export async function loadOrg(
   const json = displayOf(alias);
   const parsed = JSON.parse(json) as {
     result?: {
+      id?: unknown;
       instanceUrl?: string;
       username?: string;
       devHubId?: unknown;
@@ -140,6 +147,9 @@ export async function loadOrg(
     // The instance the token was read for, which the CLI reports afresh.
     instanceUrl: live.instanceUrl ?? parsed.result.instanceUrl,
     accessToken: live.accessToken,
+    ...(typeof parsed.result.id === 'string' && parsed.result.id !== ''
+      ? { orgId: parsed.result.id }
+      : {}),
     // The extension types a scratch org by the same word of the display
     // (`SfdxBridge.findOrg`).
     ...(typeof parsed.result.devHubId === 'string' && parsed.result.devHubId !== ''

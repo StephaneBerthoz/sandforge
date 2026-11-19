@@ -10,6 +10,7 @@ import type {
   ForgeTargetAutomation,
   RunCheckpointTaken,
   RunDeliverability,
+  UncountedWrites,
 } from '@sandforge/shared';
 import { recordWriteHeaders, guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type {
@@ -95,10 +96,13 @@ import {
   countedStorageBytes,
   deliverabilityPartOf,
   emailsOfLimit,
+  limitsOfOrg,
   readApiBudget,
   readDataStorage,
   readEmailLimits,
   storageCheckOf,
+  storageCountedOf,
+  storageCountedWords,
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
@@ -197,6 +201,9 @@ interface CloneStorageRefusal {
   estimateMB: number;
   remainingMB: number;
   maxMB: number;
+  /** What the gate counted off what the target says it has left (`storageCountedOf`). */
+  uncountedWrites?: UncountedWrites;
+  roundingMB?: number;
   heaviest: Array<{ objectApiName: string; rows: number; mb: number }>;
 }
 
@@ -228,6 +235,7 @@ function cloneStorageRefusal(
     estimateMB: check.estimateMB,
     remainingMB: check.remainingMB,
     maxMB: check.maxMB,
+    ...storageCountedOf(check),
     heaviest: objects.slice(0, HEAVIEST_NAMED).map(({ objectApiName, rows, bytes }) => ({
       objectApiName,
       rows,
@@ -255,7 +263,8 @@ function cloneStorageWords(refusal: CloneStorageRefusal, target: string): string
     .join(', ');
   return (
     `its records take about ${megabytesWords(refusal.estimateMB)} MB of data storage, and ` +
-    `${target} has ${refusal.remainingMB} MB left of ${refusal.maxMB} MB. The heaviest: ` +
+    `${target} has ${refusal.remainingMB} MB left of ${refusal.maxMB} MB` +
+    `${storageCountedWords(refusal, target)}. The heaviest: ` +
     `${heaviest}. Narrow their filter or leave them out, then preview again; or copy a sample ` +
     'of the source that fits with Forge (Depth ALL, Records per object: A sample that fits the ' +
     'target).'
@@ -1147,9 +1156,9 @@ export class SeedCloneHandler implements DomainHandler {
       // refusal for the emails, which says the storage's too: refused for
       // its emails alone, a clone met the refusal for its storage only once
       // the emails were dealt with.
-      const limits: DataStorage | { unread: string } = await readDataStorage(targetConn).catch(
-        (err: unknown) => ({ unread: extractErrorMessage(err) }),
-      );
+      const limits: DataStorage | { unread: string } = await readDataStorage(
+        limitsOfOrg(targetConn, parsed.targetOrgId),
+      ).catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
       // Past the storage the target has left, the clone is refused before
       // the first write. Copied from a production org into a Developer
       // Edition or a Developer sandbox under a wide filter, a clone wrote

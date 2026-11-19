@@ -2006,11 +2006,13 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
       };
     };
 
-    // 1 900 records, 3.7 MB of the 5 MB: they fit, a task under each ticket
+    // 1 900 records, 3.7 MB of the 4.5 MB the gate counts of the 5 said, the
+    // half MB of the rounding of what the org says set aside: they fit, close
+    // to it, a task under each ticket
     // aside.
     const quiet = await dryRunOf(false);
     expect(quiet.code).toBeUndefined();
-    expect(quiet.wholeOrg.storage.verdict).toBe('fits');
+    expect(quiet.wholeOrg.storage.verdict).toBe('near');
     expect(quiet.wouldBeRefusedCodes ?? []).not.toContain('STORAGE_EXCEEDED');
 
     const flowing = await dryRunOf(true);

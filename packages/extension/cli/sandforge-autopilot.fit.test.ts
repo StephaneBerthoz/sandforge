@@ -759,7 +759,8 @@ describe('what a run says of a fit', () => {
     // Edition still said 5 MB of 5 left a hundred seconds after a load.
     expect(lines.at(-1)).toBe(
       '  Salesforce can take several minutes to count a load in what TGT says it has left: ' +
-        'a run started sooner after another may read room it no longer has',
+        'what runs from this machine wrote to it in the last 10 minutes and it has not counted ' +
+        'yet is taken off, a load from anywhere else is not',
     );
   });
 

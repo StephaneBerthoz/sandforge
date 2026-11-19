@@ -268,7 +268,8 @@ describe('measureSyncWrite', () => {
       measures(),
     );
     const near = await measureSyncWrite(
-      counted([{ objectApiName: 'Account', operation: 'insert', rows: 1_300 }]),
+      // 2.34 MB: past 80 % of the 3 MB said, the half MB of its rounding set aside.
+      counted([{ objectApiName: 'Account', operation: 'insert', rows: 1_200 }]),
       measures(),
     );
     const unread = await measureSyncWrite(
@@ -843,6 +844,27 @@ describe('gateSyncWrite', () => {
       });
     }
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('says the rounding of what the target says when that alone refuses the records', async () => {
+    // 2 400 contacts, about 4.69 MB, against 5 MB said, of which up to half a
+    // MB may be taken already.
+    const measured = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 2_400 }]),
+      measures({ readStorage: async () => ({ maxMB: 5, remainingMB: 5 }) }),
+    );
+
+    const answer = await gateSyncWrite(measured, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm: vi.fn(),
+    });
+    expect(answer).toMatchObject({ go: false, code: 'SYNC_STORAGE_EXCEEDED' });
+    expect(answer.go ? '' : answer.message).toContain(
+      'and TRAP has 5 MB left of 5 MB (up to 0.5 MB of it may be taken already: Salesforce ' +
+        'says it to the MB): leave objects out',
+    );
   });
 
   it('lists every reason it stops a run for in the order it meets them, the first the one it stops with', async () => {

@@ -5621,9 +5621,25 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
     /80 % of the data storage the target says it has left, once half a MB is off/,
   );
   assert.match(read(...FORGE_SRC, 'ForgeRunGate.ts'), /export const STORAGE_NEAR_SHARE = 0\.8;/);
+  // The rounding and what runs from this machine wrote that the target has
+  // not counted yet, taken off by the one rule every gate and fit counts by.
+  const roomRule = read(...FORGE_SRC, 'ForgeRunGate.ts');
+  assert.match(roomRule, /export const STORAGE_ROUNDING_MARGIN_MB = 0\.5;/);
+  assert.match(
+    roomRule,
+    /storage\.remainingMB - STORAGE_ROUNDING_MARGIN_MB - \(storage\.uncountedWrites\?\.mb \?\? 0\)/,
+  );
+  assert.match(
+    sample,
+    /and what runs from this machine wrote to the target in the last 10 minutes that Salesforce has not counted yet/,
+  );
+  assert.match(
+    read(...FORGE_SRC, 'storageWritten.ts'),
+    /export const UNCOUNTED_WINDOW_MINUTES = 10;/,
+  );
   assert.match(
     read(...FORGE_SRC, 'fitBudget.ts'),
-    /export const STORAGE_ROUNDING_MARGIN_MB = 0\.5;/,
+    /STORAGE_NEAR_SHARE \* storageRoomMB\(input\.storage\)/,
   );
   assert.match(read(...SAMPLE_SRC, 'sampleBudget.ts'), /share: STORAGE_NEAR_SHARE,/);
   // Its writes held to the target's requests and batches, a tenth of the day kept.

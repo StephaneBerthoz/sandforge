@@ -1042,6 +1042,12 @@ describe('forge:execute of a sample of the whole org', () => {
     });
 
     it('is offered nothing when it fits', async () => {
+      // What the gate counts of the 2 MB said, the half MB of its rounding
+      // set aside, holds every record.
+      limits['tgt-org'] = {
+        ...(limits['tgt-org'] as object),
+        DataStorageMB: { Max: 5, Remaining: 2 },
+      };
       await execute({ config: EVERY_RECORD });
 
       expect(lastAnswer()).not.toHaveProperty('sampleOffer');

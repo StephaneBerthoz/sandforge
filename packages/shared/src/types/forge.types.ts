@@ -1,6 +1,11 @@
 import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { ForgeRunGateStop } from '../utils/forge-run-gate.js';
-import type { AnonymizationMethod, CurrencyReplaced, RecordTypeGiven } from './common.types.js';
+import type {
+  AnonymizationMethod,
+  CurrencyReplaced,
+  RecordTypeGiven,
+  UncountedWrites,
+} from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
 /**
@@ -887,6 +892,8 @@ export type ForgeWholeOrgStorageCheck =
       maxMB: number;
       remainingMB: number;
       automationMB?: number;
+      /** Of `remainingMB`, what runs from this machine wrote that the org has not counted yet: taken off. */
+      uncountedWrites?: UncountedWrites;
     }
   | { verdict: 'unread'; estimateMB: number; unread: string; automationMB?: number };
 
@@ -1021,6 +1028,12 @@ export interface WholeOrgSampleBudget {
   maxMB?: number;
   share?: number;
   roundingMB?: number;
+  /**
+   * The MB kept, past the rounding, for what runs from this machine wrote to
+   * the target that its `/limits` had not counted yet as the sample was drawn
+   * (`UncountedWrites`); absent when nothing was.
+   */
+  uncountedMB?: number;
   /** The MB kept for what the target's automation that still runs creates under the sample's records; absent when none is. */
   automationMB?: number;
   /** The MB asked (`ForgeSampleOptions.withinMB`); absent when none was. */

@@ -15,6 +15,7 @@ import { listWords } from '../utils/listWords';
 import { maskingRefusalWords } from '../utils/maskingRefusal';
 import { muteRefusalWords } from '../utils/muteRefusal';
 import { panelRefusalWords } from '../utils/runCheckpoint';
+import { storageCountedWords } from '../utils/storageCounted';
 
 /**
  * Options for the useMessageResponse hook.
@@ -104,6 +105,15 @@ function megabytes(value: number): string {
   return new Intl.NumberFormat(i18n.resolvedLanguage ?? i18n.language ?? 'en').format(rounded);
 }
 
+/**
+ * What a storage gate took off what the org says it has left, as a refusal's
+ * figures carry it, in sentences after the refusal's own: a seed of 3 MB
+ * refused with 5 MB said left minutes after a run took 2 read as a mistake.
+ */
+function storageCounted(payload: Record<string, unknown>): string {
+  return storageCountedWords(payload, (key, options) => i18n.t(key, options), megabytes);
+}
+
 /** What every write path writes before the reason Production Guard gave. */
 const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
 
@@ -145,7 +155,7 @@ function guardRefusal(
           remaining: remainingMB,
           max: maxMB,
           org,
-        })
+        }) + storageCounted(payload)
       : undefined;
   }
   // A CSV import its rows' data storage stopped before the first write, with
@@ -166,7 +176,7 @@ function guardRefusal(
           remaining: formatNumber(remainingMB),
           max: formatNumber(maxMB),
           org,
-        })
+        }) + storageCounted(payload)
       : undefined;
   }
   // A seed its records' emails stopped before the first write, past what the
@@ -239,7 +249,7 @@ function guardRefusal(
           remaining: megabytes(remainingMB),
           max: megabytes(maxMB),
           org,
-        })
+        }) + storageCounted(payload)
       : i18n.t('common.refusal.autopilotStorageExceeded');
   }
   // A fit of an Autopilot plan the host could not make: the plan under

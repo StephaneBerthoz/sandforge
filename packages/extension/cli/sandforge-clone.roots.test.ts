@@ -895,13 +895,51 @@ describe('a clone from records weighed before it writes', () => {
       await run(argv('SELECT Id FROM Account', '--accept-automation', '--dry-run', '--json')),
     ).toBeUndefined();
 
+    // As many as the gate lets through again: 3.5 MB of the 4 said, the half
+    // MB of the rounding of what the org says set aside.
     const refusal = wouldBeRefusedFor(json<GateJson>(), 'STORAGE_EXCEEDED');
     expect(refusal).toContain(
       'and TGT has 4 MB left of 5 MB: the 41 Account records the query chooses take about ' +
-        '0.12 MB each, and about 34 of them fit: --query "SELECT Id FROM Account ORDER BY ' +
-        'CreatedDate DESC, Id DESC LIMIT 34" clones the newest 34',
+        '0.12 MB each, and about 30 of them fit: --query "SELECT Id FROM Account ORDER BY ' +
+        'CreatedDate DESC, Id DESC LIMIT 30" clones the newest 30',
     );
     expect(refusal).not.toContain('records per object');
+  });
+
+  // Run for real on a trap org of 5 MB, `/limits` still said 5 left a
+  // hundred seconds after a load of 1.95 MB: a dry run started then read the
+  // room that load had taken.
+  it('weighs a dry run minutes after a run into the same target against what that run took and the target still says it has', async () => {
+    // The target still says 2 MB left after the first run, as before it.
+    withOrgs(volumeSource(41, 1_200), undefined, { limits: fiveMegabytes(2) });
+    // The target by the id the CLI shows: a dry run reads its limits by it.
+    vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+      alias,
+      username: '',
+      instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+      accessToken: 'token',
+      ...(alias === 'TGT' ? { orgId: TARGET_ORG } : {}),
+    }));
+    // 20 accounts and their 591 contacts, about 1.2 MB: they fit.
+    const first = Array.from({ length: 20 }, (_, n) => ['--record', sourceId('001', 101 + n)]);
+    expect(await run(argv(undefined, ...first.flat()))).toBeUndefined();
+    stdout = [];
+    stderr = [];
+
+    // 21 accounts more and their 609 contacts, about 1.24 MB: within the
+    // 2 MB said, past what is left once the first run is counted.
+    const rest = Array.from({ length: 21 }, (_, n) => ['--record', sourceId('001', 121 + n)]);
+    expect(await run(argv(undefined, ...rest.flat(), '--dry-run', '--json'))).toBeUndefined();
+
+    const refusal = wouldBeRefusedFor(json<GateJson>(), 'STORAGE_EXCEEDED');
+    expect(refusal).toContain(
+      'and TGT has 2 MB left of 5 MB (about 1.2 MB of it taken by what a run from this ' +
+        'machine wrote to TGT in the last 1 minute(s), which Salesforce has not counted yet): ',
+    );
+    expect(stderr.join('')).toContain(
+      '  data storage of TGT: 2 MB left of 5 MB (about 1.2 MB of it taken by what a run from ' +
+        'this machine wrote to TGT in the last 1 minute(s), which Salesforce has not counted yet)',
+    );
   });
 
   it('says when one of its roots alone takes more than --max-total, and offers no LIMIT', async () => {

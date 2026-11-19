@@ -359,7 +359,11 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
   // reaches opens a task under each of the 1 200 contacts: about 2.3 MB
   // more, which the gate of a clone of the whole org counts.
   describe('its records weighed at the gate with what the target creates under them', () => {
-    /** 300 contacts more under the first account of Energy: the records take 0.6 MB of the 1 MB left. */
+    /**
+     * 300 contacts more under the first account of Energy: the records take
+     * 0.6 MB of the 1 the gate counts of the 1.5 MB left, the half MB of the
+     * rounding of what the org says set aside.
+     */
     const withManyContacts = (): void => {
       for (let n = 1; n <= 300; n++) {
         org.add('Contact', {
@@ -372,7 +376,7 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
       }
       limits['tgt'] = {
         ...(limits['tgt'] as object),
-        DataStorageMB: { Max: 5, Remaining: 1 },
+        DataStorageMB: { Max: 5, Remaining: 1.5 },
       };
     };
     /** The target runs a flow that opens a task under each contact it is sent. */
@@ -413,11 +417,16 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
       const error = lastError();
       expect(error).toMatchObject({
         code: 'STORAGE_EXCEEDED',
-        gate: { code: 'STORAGE_EXCEEDED', roots: { objectApiName: 'Account', fits: 1 } },
+        gate: {
+          code: 'STORAGE_EXCEEDED',
+          storage: { roundingMB: 0.5 },
+          roots: { objectApiName: 'Account', fits: 1 },
+        },
       });
       expect(String(error['message'])).toContain(
-        "of it for what the target's automation creates under them, and TGT has 1 MB left " +
-          'of 5 MB: about 1 of the 2 Account records the query chooses fit, each with what its ' +
+        "of it for what the target's automation creates under them, and TGT has 1.5 MB left " +
+          'of 5 MB (up to 0.5 MB of it may be taken already: Salesforce says it to the MB): ' +
+          'about 1 of the 2 Account records the query chooses fit, each with what its ' +
           'clone copies: a LIMIT of 1 in the query clones that many — after ORDER BY ' +
           'CreatedDate DESC, Id DESC, the newest',
       );

@@ -27,6 +27,8 @@ import {
   readDataStorage,
   runRequestsEstimate,
   storageCheckOf,
+  storageCountedOf,
+  storageCountedWords,
   storageRefusal,
   type ApiBudgetCheck,
   type LimitsTransport,
@@ -546,6 +548,7 @@ export function seedStorageWords(check: SeedStorageCheck, target: string): strin
   }
   return (
     `${taken}, ${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    storageCountedWords(storageCountedOf(check), target) +
     (check.verdict === 'near' ? ': close to what it has left' : '') +
     startsForNone
   );
@@ -717,7 +720,11 @@ export function seedFitBudgetOf(
     storage:
       check.verdict === 'unread'
         ? { unread: check.unread }
-        : { maxMB: check.maxMB, remainingMB: check.remainingMB },
+        : {
+            maxMB: check.maxMB,
+            remainingMB: check.remainingMB,
+            ...(check.uncountedWrites ? { uncountedWrites: check.uncountedWrites } : {}),
+          },
     ...(withinMB !== undefined ? { withinMB } : {}),
     api:
       api.verdict === 'unread'

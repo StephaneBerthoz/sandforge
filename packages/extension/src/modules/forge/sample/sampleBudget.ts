@@ -27,15 +27,17 @@ import {
   API_BUDGET_NEAR_SHARE,
   DELIVERABILITY_READ_MOST,
   STORAGE_NEAR_SHARE,
+  STORAGE_ROUNDING_MARGIN_MB,
   apiBudgetCheckOf,
   countedStorageBytes,
   forgeRequestPartsOf,
   storageCheckOf,
+  storageRoomMB,
   wholeOrgCostOf,
   type ApiBudget,
   type DataStorage,
 } from '../ForgeRunGate.js';
-import { STORAGE_ROUNDING_MARGIN_MB, fitBudgetOf, type RoomPerRecord } from '../fitBudget.js';
+import { fitBudgetOf, type RoomPerRecord } from '../fitBudget.js';
 import type { SampleBudgetTerms } from './sampleDrawing.js';
 import type { SampleBounds } from './sampleFit.js';
 import { sampleLinksOf, type SampleObjectInput } from './sampleLinks.js';
@@ -174,11 +176,7 @@ export function sampleBudgetTermsOf(input: {
   const bytesLimit = fit.terms.limitedBy === 'within' ? 'within' : 'storage';
   // What the storage leaves the sample, the MB asked aside: past it, the
   // storage holds what the sample needs, whatever MB is asked.
-  const storageBytes = Math.floor(
-    STORAGE_NEAR_SHARE *
-      Math.max(0, storage.remainingMB - STORAGE_ROUNDING_MARGIN_MB) *
-      BYTES_PER_MB,
-  );
+  const storageBytes = Math.floor(STORAGE_NEAR_SHARE * storageRoomMB(storage) * BYTES_PER_MB);
   return {
     budget: {
       bytes: fit.bytes,
@@ -186,6 +184,7 @@ export function sampleBudgetTermsOf(input: {
       maxMB: storage.maxMB,
       share: STORAGE_NEAR_SHARE,
       roundingMB: STORAGE_ROUNDING_MARGIN_MB,
+      ...(fit.terms.uncountedMB !== undefined ? { uncountedMB: fit.terms.uncountedMB } : {}),
       ...(withinMB !== undefined ? { withinMB } : {}),
       limitedBy: bytesLimit,
     },

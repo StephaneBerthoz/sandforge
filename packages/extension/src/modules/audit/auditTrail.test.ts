@@ -11,6 +11,7 @@ import {
 } from './auditTrail.js';
 import type { AuditDeps, WriteRun } from './auditTrail.js';
 import { LineageStore } from './lineage.js';
+import { uncountedWritesOf } from '../forge/storageWritten.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 
@@ -385,6 +386,32 @@ describe('recordWriteRun', () => {
 
       expect(new AuditTrailStore(deps.configStore).list().entries[0].guard).toBe('refused');
     });
+  });
+
+  it('notes what a run created and deleted in its org for the next storage gate, and nothing for a run that wrote no record', () => {
+    // An org of its own: the other tests of this file record runs into theirs.
+    const org = '00D000000000009AAA';
+    const records = (orgId: string) =>
+      uncountedWritesOf(orgId, 5, (_object, rows) => rows * 1024 * 1024);
+    const deps = makeDeps();
+    recordWriteRun(deps, run({ orgId: org, action: 'compare_execute', module: 'compare' }));
+    recordWriteRun(deps, run({ orgId: org, outcome: 'stopped', objects: [] }));
+    // A rehearsal rolls back what it creates.
+    recordWriteRun(deps, run({ orgId: org, action: 'forge_rehearse' }));
+    expect(records(org)).toBeUndefined();
+
+    recordWriteRun(deps, run({ orgId: org }));
+    expect(records(org)).toMatchObject({ mb: 3, runs: 1 });
+    // A removal of them: what the run wrote, freed.
+    recordWriteRun(
+      deps,
+      run({
+        orgId: org,
+        action: 'delete_execute',
+        objects: [{ ...emptyCounts('Account'), deleted: 3 }],
+      }),
+    );
+    expect(records(org)).toBeUndefined();
   });
 
   it('logs a store that cannot be written instead of failing the run it records', () => {

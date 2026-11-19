@@ -60,6 +60,7 @@ import type {
   RunCheckpointTaken,
   RunDeliverability,
   SampleGatePlanRefusal,
+  UncountedWrites,
   WholeOrgSample,
   WholeOrgSampleBudget,
 } from '@sandforge/shared';
@@ -104,6 +105,7 @@ import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { NO_ASSIGN_RIGHT } from './AutomationMuteLease.js';
 import { AUTOMATION_READ_MOST, objectsTheRunWrites } from './TargetAutomationReader.js';
 import type { SampleRefusalCode } from './sample/sampleDrawing.js';
+import { noteStorageSaid, uncountedWritesOf } from './storageWritten.js';
 
 /** The volume past which the extension asks before a run writes (`sandforge.safety.confirmAboveRecords`). */
 export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
@@ -163,6 +165,31 @@ export function objectsAboveReadCeiling(
  * kept for that.
  */
 export const STORAGE_NEAR_SHARE = 0.8;
+
+/**
+ * MB kept off what `/limits` says is left for its rounding. `DataStorageMB`
+ * answers whole MB: its `Remaining` is the org's maximum less its usage
+ * rounded to the nearest MB, so up to half a MB may be said that is not
+ * there. Measured on a scratch org of 500 MB: 1,500 contacts, about 2.93 MB,
+ * left 497; a trap org of 5 MB holding about 0.4 MB said 5 left.
+ */
+export const STORAGE_ROUNDING_MARGIN_MB = 0.5;
+
+/**
+ * What a gate counts as left of the data storage an org says it has: what
+ * `/limits` says, less the half MB its rounding may hide
+ * ({@link STORAGE_ROUNDING_MARGIN_MB}) and what runs from this machine wrote
+ * to it that it has not counted yet (`uncountedWrites`); never below nothing. The
+ * one rule of every gate, fit and sample that weighs records against it.
+ */
+export function storageRoomMB(
+  storage: Pick<DataStorage, 'remainingMB' | 'uncountedWrites'>,
+): number {
+  return Math.max(
+    0,
+    storage.remainingMB - STORAGE_ROUNDING_MARGIN_MB - (storage.uncountedWrites?.mb ?? 0),
+  );
+}
 
 const KB = 1024;
 
@@ -596,6 +623,12 @@ export interface DataStorage {
    * the whole org copies take: absent when the answer did not list it.
    */
   fileStorage?: { maxMB: number; remainingMB: number };
+  /**
+   * Of what it says it has left, what runs from this machine wrote to it
+   * that it has not counted yet (`uncountedWritesOf`): absent when nothing
+   * is, or when it was read for no org ({@link LimitsTransport.writtenTo}).
+   */
+  uncountedWrites?: UncountedWrites;
 }
 
 /** What an org has of its daily API requests, as its `/limits` say. */
@@ -607,6 +640,26 @@ export interface ApiBudget {
 /** The part of a connection reading an org's limits needs. */
 export interface LimitsTransport {
   request(request: { method: 'GET'; url: string }): Promise<unknown>;
+  /**
+   * The org these limits are of, by its id, when a gate reads them: what it
+   * says of its data storage is noted, and what runs from this machine wrote
+   * to it that it has not counted yet is said beside it
+   * ({@link readDataStorage}). Absent, the limits are read as they are.
+   */
+  writtenTo?: string;
+}
+
+/**
+ * A connection's limits as a gate reads them for the org `orgId`
+ * ({@link LimitsTransport.writtenTo}); the connection itself when the org is
+ * not known.
+ */
+export function limitsOfOrg(
+  transport: LimitsTransport,
+  orgId: string | undefined,
+): LimitsTransport {
+  if (orgId === undefined) return transport;
+  return { request: (request) => transport.request(request), writtenTo: orgId };
 }
 
 /** A limit as `/limits` gives each: its most, and what is left of it. */
@@ -655,14 +708,28 @@ function sayWhenNotTold(answer: unknown, limit: string, notTold: string): void {
  * the user the run writes as, or leave it out of what it tells a Standard
  * User ({@link DATA_STORAGE_NOT_TOLD}); the caller says so, and never takes it
  * for enough.
+ *
+ * Read for a gate of an org ({@link LimitsTransport.writtenTo}), it says what
+ * runs from this machine wrote to that org that its `/limits` has not counted
+ * yet, and notes what they say now for the next gate (`storageWritten`).
  */
 export async function readDataStorage(transport: LimitsTransport): Promise<DataStorage> {
   const answer = await transport.request({ method: 'GET', url: '/limits' });
   sayWhenNotTold(answer, 'DataStorageMB', DATA_STORAGE_NOT_TOLD);
   const limits = dataStorageSchema.parse(answer);
+  const remainingMB = limits.DataStorageMB.Remaining;
+  const org = transport.writtenTo;
+  const uncountedWrites =
+    org !== undefined
+      ? uncountedWritesOf(org, remainingMB, (objectApiName, rows) =>
+          countedStorageBytes(objectApiName, { rows }),
+        )
+      : undefined;
+  if (org !== undefined) noteStorageSaid(org, remainingMB);
   return {
     maxMB: limits.DataStorageMB.Max,
-    remainingMB: limits.DataStorageMB.Remaining,
+    remainingMB,
+    ...(uncountedWrites ? { uncountedWrites } : {}),
     ...(limits.DailyApiRequests
       ? {
           dailyApiRequests: {
@@ -859,13 +926,13 @@ export const API_BUDGET_EXCEEDED = 'API_BUDGET_EXCEEDED';
 /**
  * Why a run cannot be written for the API requests it takes, or nothing when it can.
  *
- * @param notCounted - What the run may send past the estimate, said before
+ * @param uncountedWrites - What the run may send past the estimate, said before
  *   "Nothing was written": Sync's sends again for a lock.
  */
 export function apiBudgetRefusal(
   check: ApiBudgetCheck,
   target: string,
-  notCounted?: string,
+  uncountedWrites?: string,
 ): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;
   return (
@@ -874,7 +941,7 @@ export function apiBudgetRefusal(
     `of its ${check.max} daily requests left: it would stop part way through, its records ` +
     'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
     'limit is counted over the last 24 hours — or write fewer records. ' +
-    (notCounted ? `${notCounted} ` : '') +
+    (uncountedWrites ? `${uncountedWrites} ` : '') +
     'Nothing was written.'
   );
 }
@@ -1396,7 +1463,8 @@ export function fileStorageRefusal(check: StorageCheck, target: string): string 
   if (check.verdict !== 'exceeds') return undefined;
   return (
     `The files to copy take about ${formatMB(check.estimateMB)} MB of file storage, and ` +
-    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: leave out the objects ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    `${storageCountedWords(storageCountedOf(check), target)}: leave out the objects ` +
     `whose files take it, turn the copy of files off on Review, or free file storage in ` +
     `${target}. Nothing was written.`
   );
@@ -1541,6 +1609,7 @@ export function wholeOrgFilesOf(
               estimateMB: Number(formatMB(check.estimateMB)),
               remainingMB: check.remainingMB,
               kind: 'files',
+              ...storageCountedOf(check),
             },
           },
         }
@@ -1743,7 +1812,9 @@ export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudg
  * What the rows take against what the target has left, or why that could not
  * be told. `automationMB` is the part of `estimateMB` the target's automation
  * that still runs creates under the rows ({@link automationBytesOf}), counted
- * with them; absent when nothing is.
+ * with them; absent when nothing is. `remainingMB` is what the target says;
+ * `uncountedWrites`, of it, what runs from this machine wrote that it has not
+ * counted yet, taken off as the verdict was given.
  */
 export type StorageCheck =
   | {
@@ -1752,13 +1823,18 @@ export type StorageCheck =
       maxMB: number;
       remainingMB: number;
       automationMB?: number;
+      uncountedWrites?: UncountedWrites;
     }
   | { verdict: 'unread'; estimateMB: number; unread: string; automationMB?: number };
 
 /**
  * The rows' storage against the target's: `exceeds` past what it has left,
  * `near` past {@link STORAGE_NEAR_SHARE} of it, `unread` when the target did
- * not say.
+ * not say. What it has left is what it says less the half MB its rounding may
+ * hide and what runs from this machine wrote to it that it has not counted
+ * yet ({@link storageRoomMB}): a gate that read the whole MB `/limits` says
+ * let a plan through that the org then refused part way, and one started
+ * minutes after another read room the first had already taken.
  *
  * @param automationBytes - What the target's automation that still runs
  *   creates under the rows ({@link automationBytesOf}): counted with them.
@@ -1775,14 +1851,67 @@ export function storageCheckOf(
   if ('unread' in storage) {
     return { verdict: 'unread', estimateMB, unread: storage.unread, ...said };
   }
-  const { maxMB, remainingMB } = storage;
-  const verdict =
-    bytes > remainingMB * BYTES_PER_MB
-      ? 'exceeds'
-      : bytes > STORAGE_NEAR_SHARE * remainingMB * BYTES_PER_MB
-        ? 'near'
-        : 'fits';
-  return { verdict, estimateMB, maxMB, remainingMB, ...said };
+  const { maxMB, remainingMB, uncountedWrites } = storage;
+  const room = storageRoomMB(storage) * BYTES_PER_MB;
+  const verdict = bytes > room ? 'exceeds' : bytes > STORAGE_NEAR_SHARE * room ? 'near' : 'fits';
+  return {
+    verdict,
+    estimateMB,
+    maxMB,
+    remainingMB,
+    ...said,
+    ...(uncountedWrites ? { uncountedWrites } : {}),
+  };
+}
+
+/**
+ * What a gate counted off what the target says it has left, when it changed
+ * its verdict or was there to count: what runs from this machine wrote to it
+ * that it has not counted yet, and the half MB of its rounding when that
+ * alone refused the records — said once what they take is no more than what
+ * the target says. The words go inside a refusal's "has N MB left of M MB";
+ * the figures, to the page that says it in its own words.
+ */
+export function storageCountedOf(check: StorageCheck): StorageCounted {
+  if (check.verdict === 'unread') return {};
+  const uncountedMB = check.uncountedWrites?.mb ?? 0;
+  const roundingDecided =
+    check.verdict === 'exceeds' && check.estimateMB <= check.remainingMB - uncountedMB;
+  return {
+    ...(check.uncountedWrites ? { uncountedWrites: check.uncountedWrites } : {}),
+    ...(roundingDecided ? { roundingMB: STORAGE_ROUNDING_MARGIN_MB } : {}),
+  };
+}
+
+/** What a gate counted off what the target says it has left ({@link storageCountedOf}). */
+export interface StorageCounted {
+  uncountedWrites?: UncountedWrites;
+  /** The half MB of the rounding of `/limits`, when it alone refused the records. */
+  roundingMB?: number;
+}
+
+/**
+ * {@link storageCountedOf} in words, in brackets after what the target says
+ * it has left: "(about 2.1 MB of it taken by what a run from this machine
+ * wrote to TGT in the last 2 minute(s), which Salesforce has not counted
+ * yet)". Nothing when the gate counted nothing off.
+ */
+export function storageCountedWords(counted: StorageCounted, target: string): string {
+  const { uncountedWrites, roundingMB } = counted;
+  const said = [
+    ...(uncountedWrites
+      ? [
+          `about ${formatMB(uncountedWrites.mb)} MB of it taken by what ` +
+            `${uncountedWrites.runs === 1 ? 'a run' : `${uncountedWrites.runs} runs`} from this machine ` +
+            `wrote to ${target} in the last ${uncountedWrites.minutes} minute(s), which Salesforce ` +
+            'has not counted yet',
+        ]
+      : []),
+    ...(roundingMB !== undefined
+      ? [`up to ${roundingMB} MB of it may be taken already: Salesforce says it to the MB`]
+      : []),
+  ];
+  return said.length > 0 ? ` (${said.join('; ')})` : '';
 }
 
 /**
@@ -2104,6 +2233,7 @@ export async function wholeOrgDryRunOf(input: {
           storage: {
             estimateMB: Number(formatMB(storage.estimateMB)),
             remainingMB: storage.remainingMB,
+            ...storageCountedOf(storage),
           },
         }
       : undefined,
@@ -2211,16 +2341,21 @@ export function sampleStorageUnreadStopOf(input: {
 /**
  * The bytes a sample may take of the data storage a target has left now, by
  * the terms it was fitted to: the same share of what is left past the same
- * margin for rounding. The MB asked bound nothing more here: a sample was
- * drawn within them. Undefined for a sample drawn against no storage — the
- * target would not say, and the MB or the records asked held it.
+ * margin for rounding, and past what runs from this machine wrote to it that
+ * it has not counted yet, as the sample was drawn. The MB asked bound
+ * nothing more here: a sample was drawn within them. Undefined for a sample
+ * drawn against no storage — the target would not say, and the MB or the
+ * records asked held it.
  */
 function sampleHoldsBytesOf(
   budget: SampleBudgetTerms,
-  storage: Pick<DataStorage, 'remainingMB'>,
+  storage: Pick<DataStorage, 'remainingMB' | 'uncountedWrites'>,
 ): number | undefined {
   if (budget.remainingMB === undefined || budget.share === undefined) return undefined;
-  const past = Math.max(0, storage.remainingMB - (budget.roundingMB ?? 0));
+  const past = Math.max(
+    0,
+    storage.remainingMB - (budget.roundingMB ?? 0) - (storage.uncountedWrites?.mb ?? 0),
+  );
   return Math.floor(budget.share * past * BYTES_PER_MB);
 }
 
@@ -2243,15 +2378,23 @@ function sampleTargetMovedStopOf(input: {
   if (holds === undefined || sample.storageBytes <= holds) return undefined;
   const takes = formatMBPast(sample.storageBytes / BYTES_PER_MB, holds / BYTES_PER_MB);
   const fitted = formatMB(sample.budget.bytes / BYTES_PER_MB);
+  // What the target says, less what runs from this machine wrote to it since
+  // and it has not counted: the sample's own terms say its rounding.
+  const uncountedWrites = storage.uncountedWrites;
   return {
     code: 'STORAGE_EXCEEDED',
     message:
       `The sample was fitted to ${fitted} MB of the data storage ${target} had left ` +
       `(${sample.budget.remainingMB} MB), and ${target} now says ${storage.remainingMB} MB ` +
-      `left, which holds ${takes.bound} MB of a sample: the sample takes about ${takes.over} MB. ` +
+      `left${storageCountedWords(uncountedWrites ? { uncountedWrites } : {}, target)}, ` +
+      `which holds ${takes.bound} MB of a sample: the sample takes about ${takes.over} MB. ` +
       'Simulate again — run the dry run again — to draw a sample that fits: a run never cuts ' +
       'its sample short. Nothing was written.',
-    storage: { estimateMB: Number(takes.over), remainingMB: storage.remainingMB },
+    storage: {
+      estimateMB: Number(takes.over),
+      remainingMB: storage.remainingMB,
+      ...(uncountedWrites ? { uncountedWrites } : {}),
+    },
     sample: { fittedMB: Number(fitted), holdsMB: Number(takes.bound) },
   };
 }
@@ -3894,7 +4037,8 @@ export function storageRefusal(check: StorageCheck, target: string): string | un
   if (check.verdict !== 'exceeds') return undefined;
   return (
     `The records to write take ${storageTakesWords(check)}, and ` +
-    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: leave objects out, ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    `${storageCountedWords(storageCountedOf(check), target)}: leave objects out, ` +
     `lower the records per object, or free data storage in ${target}.`
   );
 }
@@ -3950,7 +4094,10 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
     );
     return lines;
   }
-  lines.push(`  data storage of ${target}: ${check.remainingMB} MB left of ${check.maxMB} MB`);
+  lines.push(
+    `  data storage of ${target}: ${check.remainingMB} MB left of ${check.maxMB} MB` +
+      storageCountedWords(storageCountedOf(check), target),
+  );
   if (check.verdict === 'near') {
     lines.push(
       `  that is more than ${Math.round(STORAGE_NEAR_SHARE * 100)} % of what ${target} has left: ` +

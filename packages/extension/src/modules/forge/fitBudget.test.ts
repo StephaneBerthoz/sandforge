@@ -8,9 +8,8 @@ import {
   type ForgeTargetFlow,
 } from '@sandforge/shared';
 
-import { apiBudgetCheckOf } from './ForgeRunGate.js';
+import { STORAGE_ROUNDING_MARGIN_MB, apiBudgetCheckOf } from './ForgeRunGate.js';
 import {
-  STORAGE_ROUNDING_MARGIN_MB,
   automationRoomOf,
   bytesLimitOf,
   evenlyKept,
@@ -18,6 +17,7 @@ import {
   roomBytesOf,
   storageFitBudgetOf,
   storageRecountWords,
+  uncountedFitWords,
   type FitAct,
 } from './fitBudget.js';
 
@@ -101,10 +101,29 @@ describe('fitBudgetOf', () => {
     // Run for real on a Developer Edition: 5 MB of 5 left a hundred seconds
     // after a load, 2 only 384 seconds after it.
     expect(storageRecountWords('DEV')).toBe(
-      'Salesforce can take several minutes to count a load in what DEV says it has left: ' +
-        'a run started sooner after another may read room it no longer has',
+      'Salesforce can take several minutes to count a load in what DEV says it has left: what ' +
+        'runs from this machine wrote to it in the last 10 minutes and it has not counted yet is ' +
+        'taken off, a load from anywhere else is not',
     );
     expect(storageRecountWords('DEV')).not.toMatch(/\d+ seconds/);
+  });
+
+  it('fits to what is left once what runs from this machine wrote and /limits has not counted is off', () => {
+    const budget = fitBudgetOf({
+      storage: { maxMB: 5, remainingMB: 5, uncountedWrites: { mb: 2, runs: 1, minutes: 1 } },
+    });
+
+    // 0.8 × (5 − 0.5 − 2): a seed fitted to the 5 MB said a minute after a
+    // run that took 2 was refused by the org part way through.
+    expect(budget).toMatchObject({
+      bytes: Math.floor(2 * BYTES_PER_MB),
+      terms: { remainingMB: 5, roundingMB: 0.5, uncountedMB: 2, limitedBy: 'storage' },
+    });
+    // And its line says it, beside the rounding.
+    expect(uncountedFitWords({ uncountedMB: 2 })).toBe(
+      ', 2 MB for what runs from this machine wrote to it that Salesforce has not counted yet',
+    );
+    expect(uncountedFitWords({})).toBe('');
   });
 
   it('holds to the bound asked when it is lower than what the org has left, and says which held', () => {

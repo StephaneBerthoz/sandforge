@@ -2028,9 +2028,71 @@ describe('forge:execute, the gate before the first write', () => {
       ]);
     });
 
+    it('refuses, minutes after a run into the same org, rows that fit only the room that run already took', async () => {
+      // The target by its own id: what a run wrote is kept under it.
+      const target = '00D000000000003AAA';
+      // Two clones of two accounts: the same one twice would be refused as
+      // the copy of what the first wrote.
+      const run = (id: string, recordId: string) =>
+        handler.handle(
+          inboundRequest({
+            id,
+            type: 'forge:execute',
+            timestamp: Date.now(),
+            payload: { graph: graphOf(), config: { ...CONFIG, recordId, targetOrgId: target } },
+          } as BaseMessage),
+        );
+      // The org says 5 MB left, before the first run and after it alike:
+      // Salesforce counts a load minutes after it.
+      limits = { DataStorageMB: { Max: 5, Remaining: 5 } };
+      const first = orchestratorHanding(boundaryOf(1_023));
+      first.execute.mockImplementation(async (_graph, _config, options) => {
+        await options?.beforeWrite?.(boundaryOf(1_023));
+        calls.push('written');
+        return {
+          ...RESULT,
+          createdCount: 1_024,
+          idRemapByObject: [
+            { objectApiName: 'Account', created: 1, linked: 0 },
+            { objectApiName: 'Contact', created: 1_023, linked: 0 },
+          ],
+        };
+      });
+      handler.setForgeOrchestrator(first, { targetAutomation: readerOf(QUIET) });
+      await run('wv-first', ACCOUNT_ID);
+      expect(calls.filter((call) => call === 'written')).toHaveLength(1);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      // 1 700 records, about 3.33 MB, against the 5 MB said, 2 MB of it
+      // taken by the first run: refused for those 2 MB alone.
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1_699)), {
+        targetAutomation: readerOf(QUIET),
+      });
+      await run('wv-execute', '001000000000456');
+
+      expect(calls.filter((call) => call === 'written')).toHaveLength(1);
+      expectStoppedAtTheGate('STORAGE_EXCEEDED');
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toEqual({
+        code: 'STORAGE_EXCEEDED',
+        storage: {
+          estimateMB: 3.33,
+          remainingMB: 5,
+          uncountedWrites: { mb: 2, runs: 1, minutes: 1 },
+        },
+      });
+      expect(error.payload.message).toBe(
+        'The records to write take about 3.33 MB of data storage, and UAT has 5 MB left of 5 MB ' +
+          '(about 2 MB of it taken by what a run from this machine wrote to UAT in the last 1 ' +
+          'minute(s), which Salesforce has not counted yet): leave objects out, lower the ' +
+          'records per object, or free data storage in UAT. Nothing was written.',
+      );
+    });
+
     it('asks near what the target has left, whatever the volume', async () => {
-      // 100 records take 0.2 MB: more than 80 % of what is left.
-      limits = { DataStorageMB: { Max: 200, Remaining: 0.22 } };
+      // 100 records take 0.2 MB: more than 80 % of what is left once the
+      // half MB of the rounding of what the org says is set aside.
+      limits = { DataStorageMB: { Max: 200, Remaining: 0.72 } };
       handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(99)), {
         targetAutomation: readerOf(QUIET),
       });
@@ -2041,7 +2103,7 @@ describe('forge:execute, the gate before the first write', () => {
         expect.objectContaining({
           stage: 'write',
           total: 100,
-          storage: expect.objectContaining({ near: true, remainingMB: 0.22 }),
+          storage: expect.objectContaining({ near: true, remainingMB: 0.72 }),
         }),
       ]);
       expect(questions[0]).not.toHaveProperty('aboveRecords');

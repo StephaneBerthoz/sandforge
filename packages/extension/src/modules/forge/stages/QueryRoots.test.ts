@@ -202,13 +202,15 @@ describe('the refusal of a clone from records for the storage its records take',
     expect(stop).toMatchObject({
       code: 'STORAGE_EXCEEDED',
       storage: { estimateMB: 4.77, remainingMB: 4 },
-      roots: { objectApiName: 'Account', fits: 34 },
+      // What 30 of them take passes the gate again: 3.5 MB once the half MB of
+      // the rounding of what the org says is set aside.
+      roots: { objectApiName: 'Account', fits: 30 },
     });
     expect(stop?.message).toContain(
       "about 2.35 MB of it for what the target's automation creates under them, and TGT has 4 " +
-        'MB left of 5 MB: about 34 of the 41 Account records the query chooses fit',
+        'MB left of 5 MB: about 30 of the 41 Account records the query chooses fit',
     );
-    expect(stop?.message).toContain('a LIMIT of 34 in the query');
+    expect(stop?.message).toContain('a LIMIT of 30 in the query');
     expect(stop?.message).toContain('ORDER BY CreatedDate DESC, Id DESC');
     expect(stop?.message).not.toContain('records per object');
   });

@@ -11,6 +11,7 @@ import {
   type WholeOrgSampleBudget,
 } from '@sandforge/shared';
 import { formatEstimateSec, uiLocale } from '../../utils/formatters';
+import { storageCountedWords } from '../../utils/storageCounted';
 import { Button } from '../../components/ui/Button';
 import { gateStopSentence } from './ForgeRunGateNotice';
 import { leftOutReasonLabel } from './forgeLeftOut';
@@ -68,7 +69,14 @@ function storageWords(t: TFunction, check: ForgeWholeOrgStorageCheck): string {
           estimate,
           remaining: n(check.remainingMB),
           max: n(check.maxMB),
-        });
+        }) +
+        // What runs from this machine wrote that the target has not counted
+        // yet, taken off what it says: the line is judged on what is left.
+        storageCountedWords(
+          check.uncountedWrites ? { uncountedWrites: check.uncountedWrites } : undefined,
+          (key, options) => t(key, options),
+          (mb) => n(Math.ceil(mb * 100) / 100),
+        );
   if (check.automationMB === undefined || check.automationMB <= 0) return takes;
   return `${takes}; ${t('forgeRun.wholeOrgDryRun.storageAutomation', {
     automation: n(Math.round(check.automationMB * 10) / 10),

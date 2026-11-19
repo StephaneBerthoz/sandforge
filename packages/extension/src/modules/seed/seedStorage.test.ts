@@ -19,6 +19,7 @@ import { seedInsert, type SeedInsertConnection } from './seedInsert';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
+import { noteStorageWritten } from '../forge/storageWritten.js';
 import type { BulkJobHandle } from '../../core/engine/BulkApiExecutor.js';
 
 const KB = 1024;
@@ -142,6 +143,38 @@ describe('seedStorageGate', () => {
         'of 5 MB: leave objects out, lower the records per object, or free data storage in ' +
         'my-dev-org. Nothing was written.',
     );
+  });
+
+  it('weighs a seed minutes after a run into the same org against what that run took, and fits it to what is left', async () => {
+    // Its gate read 5 left; it wrote 2 MB; the org still says 5.
+    const org = '00D000000000005AAA';
+    const transport = { ...limits(5, 5), writtenTo: org };
+    await seedStorageGate(transport, objects(['Account', 1]), [], 'my-dev-org');
+    noteStorageWritten(org, { Contact: 1_024 });
+
+    // 1 600 accounts, about 3.13 MB: within the 5 said, past what is left.
+    const gate = await seedStorageGate(transport, objects(['Account', 1_600]), [], 'my-dev-org');
+
+    expect(gate.check).toMatchObject({
+      verdict: 'exceeds',
+      remainingMB: 5,
+      uncountedWrites: { mb: 2, runs: 1 },
+    });
+    expect(gate.refusal).toBe(
+      'The records to write take about 3.13 MB of data storage, and my-dev-org has 5 MB left ' +
+        'of 5 MB (about 2 MB of it taken by what a run from this machine wrote to my-dev-org in ' +
+        'the last 1 minute(s), which Salesforce has not counted yet): leave objects out, lower ' +
+        'the records per object, or free data storage in my-dev-org. Nothing was written.',
+    );
+    expect(seedStorageWords(gate.check, 'my-dev-org')).toContain(
+      'my-dev-org has 5 MB left of 5 MB (about 2 MB of it taken by what a run from this ' +
+        'machine wrote to my-dev-org in the last 1 minute(s), which Salesforce has not counted yet)',
+    );
+    // The counts it proposes meet the gate again: 0.8 × (5 − 0.5 − 2) MB.
+    expect(seedFitBudgetOf(gate)).toMatchObject({
+      bytes: Math.floor(0.8 * 2.5 * MB),
+      terms: { remainingMB: 5, uncountedMB: 2 },
+    });
   });
 
   it('lets through a seed the org has room for', async () => {

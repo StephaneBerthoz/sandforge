@@ -165,7 +165,7 @@ import {
   type SeedFit,
   type SeedFitCaps,
 } from '../src/modules/seed/seedFit.js';
-import { storageRecountWords } from '../src/modules/forge/fitBudget.js';
+import { storageRecountWords, uncountedFitWords } from '../src/modules/forge/fitBudget.js';
 import {
   API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
@@ -173,12 +173,14 @@ import {
   deliverabilityPartOf,
   emailCheckLines,
   formatMB,
+  limitsOfOrg,
   readEmailLimits,
   removalStepsAutomationLines,
   removalStepsAutomationRefusal,
   takeCheckpointFirst,
   type EmailLimit,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { emptyCounts, noteRunWritten } from '../src/modules/audit/auditTrail.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -1857,7 +1859,8 @@ export function seedFitLines(
         ? `the largest that fits the ${budget.withinMB ?? fits} MB asked (--fit-within)`
         : `the largest that fits ${fits} MB: ${budget.share * 100} % of the ${budget.remainingMB} MB ` +
           `${target} says it has left of ${budget.maxMB}, ${budget.roundingMB} MB kept first for ` +
-          'the rounding of what it says';
+          'the rounding of what it says' +
+          uncountedFitWords(budget);
   const room =
     words.roomUnread !== undefined
       ? `no room kept for what its automation creates: it could not be read (${words.roomUnread})`
@@ -2354,7 +2357,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // keeps room for it: weighed alone, a seed whose flows open a task under
   // each account went through past what the target had left.
   let storage = await seedStorageGate(
-    conn,
+    limitsOfOrg(conn, typedTarget?.id ?? session.orgId),
     taken,
     personObjects,
     args.target,
@@ -2413,7 +2416,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // What the first gate read is sent by now, and priced as sent.
         writePath = { ...writePath, sentBefore: sentSoFar() };
         storage = await seedStorageGate(
-          conn,
+          limitsOfOrg(conn, typedTarget?.id ?? session.orgId),
           taken,
           personObjects,
           args.target,
@@ -2836,6 +2839,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // whatever alias names it then.
   const targetOrgId =
     !args.dryRun && created > 0 ? (typedTarget?.id ?? (await organizationIdOf(conn))) : undefined;
+  // What it created, for the next storage gate of the target to take off
+  // what `/limits` says until Salesforce has counted it.
+  if (targetOrgId !== undefined) {
+    noteRunWritten({
+      action: 'seed_execute',
+      orgId: targetOrgId,
+      objects: result.objectResults.map((o) => ({
+        ...emptyCounts(o.objectApiName),
+        created: o.createdIds.length,
+      })),
+    });
+  }
 
   /** The checkpoint as the summary gives it: the dry run's estimate, the run's checkpoint. */
   const checkpointSaid = args.dryRun ? checkpointPlanned?.estimate : checkpointInfo;
@@ -3864,6 +3879,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   const sweep = parts?.result();
   const status = removalStatusWithSweep(outcome.result.status, sweep);
+  // What it deleted, against what the seed wrote, for the next storage gate
+  // of the org: freed, it is no longer taken off what `/limits` says.
+  noteRunWritten({
+    action: 'cleanup_delete',
+    orgId: org.id,
+    objects: outcome.result.objects.map((o) => ({
+      ...emptyCounts(o.objectApiName),
+      deleted: o.deleted,
+    })),
+  });
   output(
     status,
     emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,

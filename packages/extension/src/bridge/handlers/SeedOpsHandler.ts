@@ -145,6 +145,8 @@ import {
   deliverabilityPartOf,
   EMAILS_NOT_ACCEPTED,
   formatMB,
+  limitsOfOrg,
+  storageCountedOf,
   readEmailLimits,
   takeCheckpointFirst,
 } from '../../modules/forge/ForgeRunGate.js';
@@ -1925,7 +1927,7 @@ export class SeedOpsHandler implements DomainHandler {
     // fit below keeps room for it: weighed alone, a seed whose flows open a
     // task under each account went through past what the org had left.
     const storage = await seedStorageGate(
-      conn,
+      limitsOfOrg(conn, payload.orgId),
       taken,
       kinds.personObjects,
       orgDisplayName(org, payload.orgId),
@@ -1985,6 +1987,7 @@ export class SeedOpsHandler implements DomainHandler {
               : {
                   estimateMB: Number(formatMB(check.estimateMB)),
                   remainingMB: check.remainingMB,
+                  ...storageCountedOf(check),
                   maxMB: check.maxMB,
                   org: orgDisplayName(org, payload.orgId),
                 }),
