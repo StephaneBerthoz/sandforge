@@ -13870,6 +13870,37 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
     });
 
+    test('Seed results of a run the bound on the runs’ files dropped: what it left, and the cleanup line that lists it', async ({
+      page,
+    }) => {
+      await openSeedExecuteSkipped(bridge, page, theme);
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('seed-wizard-finish').click();
+      await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:execute', 'seed:execute:response', SEED_RUN_RESULT);
+      await page.getByTestId('seed-step-results-content').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+        info: null,
+        dropped: {
+          runId: 'op-axe',
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-01T09:59:00.000Z',
+          droppedAt: '2026-11-18T09:00:00.000Z',
+          left: [
+            { objectApiName: 'Contact', count: 290 },
+            { objectApiName: 'Account', count: 100 },
+          ],
+        },
+        cleanupLine:
+          'npx sandforge cleanup --target DevSandbox --since 2026-10-01 --objects ' +
+          'Contact,Account --max 290 --dry-run',
+      });
+      await page.getByTestId('seed-removal-cleanup-line').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-removal-dropped"]');
+    });
+
     test('Seed start: the template gallery first, the CRM starter marked, the other ways under it', async ({
       page,
     }) => {

@@ -60,6 +60,7 @@ import {
   type WritePathStep,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { nodeSeedRunCreations } from '../src/modules/seed/SeedRunCreations.js';
+import { nodeSeedRunsDropped } from '../src/modules/seed/seedRunsDropped.js';
 import { syncRemovalPlan } from '../src/modules/sync/SyncRunCreations.js';
 import { main, parseRemoveArgs, readRunSummary, runOfSummary } from './sandforge-seed.js';
 import { refusedSummary } from './runRefused.js';
@@ -1229,6 +1230,37 @@ describe('sandforge-seed --remove', () => {
       refused: { code: 'RUN_WRITING' },
     });
     expect(org.deletes).toEqual([]);
+    expect(makeConn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a run id whose file the bound on the runs’ files dropped, naming what it left and the cleanup line that lists it, exit 2', async () => {
+    // Its file gone, the id was read as a summary that could not be opened:
+    // "--remove <id> cannot be read: ENOENT", and nothing of what it left.
+    const read = readRunSummary(JSON.stringify(summary()));
+    if (!('summary' in read)) throw new Error(read.refusal);
+    const kept = runOfSummary(read.summary);
+    await nodeSeedRunsDropped(join(dir, 'journal')).note(
+      { ...kept, runId: 'sandforge-seed-big', startedAt: '2026-11-02T10:00:00.000Z' },
+      '2026-11-18T09:00:00.000Z',
+    );
+    const exit = stubExit();
+
+    await expect(main(argv('--remove', 'sandforge-seed-big', '--target', 'TGT'))).rejects.toThrow(
+      'exit 2',
+    );
+
+    expect(exit.stderr()).toContain(
+      'refused (NOT_KEPT): Nothing this run created is kept: it was dropped on ' +
+        '2026-11-18T09:00:00.000Z to keep the runs kept on this machine within their bound, 4 ' +
+        'of its records still in its org (Contact, Account). pnpm exec tsx ' +
+        'packages/extension/cli/sandforge-cleanup.ts --target TGT --since 2026-11-02 --objects ' +
+        'Contact,Account --max 2 --dry-run lists, deleting nothing, every record you created ' +
+        'there since the day the run started, its records among them; the same line without ' +
+        '--dry-run deletes what it counted. Or rewind the org to a checkpoint taken before it ' +
+        '(sandforge checkpoint rewind), or empty its objects (sandforge empty), which deletes ' +
+        'all their records.',
+    );
+    expect(exit.stderr()).not.toContain('cannot be read');
     expect(makeConn).not.toHaveBeenCalled();
   });
 

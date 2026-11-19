@@ -19,6 +19,7 @@ import {
   nodeScenarioSidecarFiles,
   writeScenarioRunSidecar,
 } from '../../modules/seed/scenario/scenarioRunSidecar.js';
+import { nodeSeedRunsDropped } from '../../modules/seed/seedRunsDropped.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -198,6 +199,44 @@ describe('SeedRemovalHandler', () => {
       await handler.handle(buildMsg('seed:removal:info', { runId: 'never-ran' }));
 
       expect(info()).toBeNull();
+      const [response] = posted<BaseMessage & { payload: Record<string, unknown> }>(
+        'seed:removal:info:response',
+      );
+      expect(response?.payload.dropped).toBeUndefined();
+    });
+
+    it('answers, of a run the bound on the runs’ files dropped with its records in its org, what it left and the cleanup line that lists them', async () => {
+      // Pushed out by the files of the runs after it, the run's card said it
+      // had created nothing, or been dropped, and named a rewind or an
+      // emptying of its objects alone.
+      const dropped = await runs.get('op-1');
+      await nodeSeedRunsDropped(storage).note(
+        { ...dropped!, runId: 'op-dropped' },
+        '2026-11-18T09:00:00.000Z',
+      );
+      const day = dropped!.startedAt.slice(0, 10);
+
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-dropped' }));
+
+      const [answered] = posted<BaseMessage & { payload: Record<string, unknown> }>(
+        'seed:removal:info:response',
+      );
+      expect(answered?.payload).toEqual({
+        info: null,
+        dropped: {
+          runId: 'op-dropped',
+          targetOrgId: TARGET,
+          startedAt: dropped!.startedAt,
+          droppedAt: '2026-11-18T09:00:00.000Z',
+          left: [
+            { objectApiName: 'Contact', count: 2 },
+            { objectApiName: 'Account', count: 1 },
+          ],
+        },
+        cleanupLine:
+          `npx sandforge cleanup --target TARGET --since ${day} --objects Contact,Account ` +
+          '--max 2 --dry-run',
+      });
     });
   });
 
@@ -655,6 +694,31 @@ describe('SeedRemovalHandler', () => {
       expect(String(errors()[0].payload.message)).toContain(
         'To take its records back, rewind the org to a checkpoint taken before it, or empty its ' +
           'objects (DataOps, Cleanup, Empty objects), which deletes all their records.',
+      );
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('refuses a run the bound on the runs’ files dropped by what it left and the cleanup line that lists it, before the rewind and the emptying', async () => {
+      const kept = await runs.get('op-1');
+      await nodeSeedRunsDropped(storage).note(
+        { ...kept!, runId: 'op-dropped' },
+        '2026-11-18T09:00:00.000Z',
+      );
+
+      await handler.handle(buildMsg('seed:remove', { runId: 'op-dropped' }));
+
+      const [refused] = errors();
+      expect(refused?.payload.code).toBe('NOT_KEPT');
+      const day = kept!.startedAt.slice(0, 10);
+      expect(refused?.payload.message).toBe(
+        'Nothing this run created is kept: it was dropped on 2026-11-18T09:00:00.000Z to keep ' +
+          'the runs kept on this machine within their bound, 3 of its records still in its org ' +
+          `(Contact, Account). npx sandforge cleanup --target TARGET --since ${day} --objects ` +
+          'Contact,Account --max 2 --dry-run lists, deleting nothing, every record you created ' +
+          'there since the day the run started, its records among them; the same line without ' +
+          '--dry-run deletes what it counted. Or rewind the org to a checkpoint taken before ' +
+          'it, or empty its objects (DataOps, Cleanup, Empty objects), which deletes all their ' +
+          'records.',
       );
       expect(org.deletes).toEqual([]);
     });

@@ -615,6 +615,27 @@ export interface SeedRunRemovalInfo {
   checkpoint?: RunCheckpointInfo;
 }
 
+/**
+ * A Seed run the runs kept on this machine dropped to stay within the bound
+ * on the bytes their files take, its records still in its org: what is kept
+ * of it once its file is gone, ids none, so that the run asked for again is
+ * said with what it left and where, and not as one that created nothing.
+ */
+export interface SeedRunDropped {
+  /** The run, by the id its file was kept under. */
+  runId: string;
+  /** The org it wrote to, as its file named it. */
+  targetOrgId: string;
+  /** Which of the Seed page's ways wrote it, when not the generator. */
+  origin?: 'csv' | 'clone';
+  /** When the run started, by this machine's clock. */
+  startedAt: ISODateString;
+  /** When its file was dropped. */
+  droppedAt: ISODateString;
+  /** What a removal of it would still have taken, per object, the last object written first. */
+  left: Array<{ objectApiName: string; count: number }>;
+}
+
 /** What removing what a Seed run created did, object by object, the last written first. */
 export interface SeedRemovalResult {
   runId: string;

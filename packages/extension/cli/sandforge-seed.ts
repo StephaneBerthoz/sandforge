@@ -213,6 +213,12 @@ import {
   SEED_RUNS_DIR,
   seedRunKept,
 } from '../src/modules/seed/SeedRunCreations.js';
+import {
+  droppedCleanupLine,
+  droppedRunWords,
+  nodeSeedRunsDropped,
+} from '../src/modules/seed/seedRunsDropped.js';
+import { commandOf } from './invocation.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts, type SweepInput } from '../src/modules/forge/ForgeRunSweep.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
@@ -445,7 +451,11 @@ Remove what a run created:
                          killed, stopped or ended by an error is taken back
                          too: a Bulk API job it had under way, which ran on in
                          the org, is read back by its id first, and its
-                         records go with the rest.
+                         records go with the rest. The id of a run whose file
+                         the bound on the runs' files dropped, its records
+                         still in the org, is refused (NOT_KEPT, exit 2) with
+                         what it left and the sandforge cleanup line that
+                         lists them, deleting nothing.
   --target <alias>       the org the run wrote to, and no other. It must be a
                          sandbox or a Developer Edition org.
   --preview              say what the removal would do, and do nothing: per
@@ -3319,6 +3329,31 @@ function sweptOfSummary(
   return { ...(runUserId ? { runUserId } : {}), ...(muted.success ? { muted: muted.data } : {}) };
 }
 
+/**
+ * Refuse, before any org is contacted, the id of a run whose file the bound
+ * on the runs' files dropped, its records still in its org (`NOT_KEPT`, exit
+ * 2): when it was dropped, what it left, and the `sandforge cleanup` line
+ * that lists it. Its file gone, the id was read as a summary that could not
+ * be opened, and nothing said what the run had left. A file of that name, or
+ * an id the index does not hold, goes on to be read as a summary.
+ */
+async function refuseDroppedRun(args: RemoveArgs): Promise<void> {
+  if (existsSync(args.summaryPath)) return;
+  const dropped = await nodeSeedRunsDropped(journalDirOf()).find(args.summaryPath);
+  if (!dropped) return;
+  const line = droppedCleanupLine(dropped, commandOf('cleanup'), args.target);
+  process.stderr.write(
+    `${refusedLine({
+      code: 'NOT_KEPT',
+      message:
+        `${droppedRunWords(dropped, line)} Or rewind the org to a checkpoint taken before it ` +
+        '(sandforge checkpoint rewind), or empty its objects (sandforge empty), which deletes ' +
+        'all their records.',
+    })}\n`,
+  );
+  process.exit(2);
+}
+
 /** The run a summary names, and where what its removals did is kept: beside the summary. */
 function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): RemovalSubject {
   let text: string;
@@ -3468,6 +3503,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   };
 
   const file = runFileOf(args.summaryPath, journalDirOf(), SEED_RUNS_DIR);
+  if (file === undefined) await refuseDroppedRun(args);
   const subject =
     file !== undefined ? await subjectOfRunFile(file, args) : subjectOfSummary(args, say);
   const { earlier } = subject;

@@ -229,6 +229,36 @@ describe('SeedRunRemoval', () => {
     expect(screen.getByTestId('seed-removal-not-kept').textContent).toContain('is no longer kept');
   });
 
+  it('says, of a run the bound on the runs’ files dropped, what it left and where, and the line that lists it before the rewind and the emptying', () => {
+    // It said the run was dropped or had created nothing, and named a rewind
+    // or an emptying of its objects alone.
+    const line =
+      'npx sandforge cleanup --target DEV-SANDBOX --since 2026-11-02 --objects Contact,Account ' +
+      '--max 1200 --dry-run';
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', {
+      info: null,
+      dropped: {
+        runId: 'op-1',
+        targetOrgId: 'org-x',
+        startedAt: '2026-11-02T10:00:00.000Z',
+        droppedAt: '2026-11-18T09:00:00.000Z',
+        left: [
+          { objectApiName: 'Contact', count: 1200 },
+          { objectApiName: 'Account', count: 300 },
+        ],
+      },
+      cleanupLine: line,
+    });
+
+    const dropped = screen.getByTestId('seed-removal-dropped');
+    expect(dropped.textContent).toContain('1,500 records still in org-x (Contact and Account)');
+    expect(screen.getByTestId('seed-removal-cleanup-line').textContent).toBe(line);
+    expect(dropped.textContent).toContain('deletes nothing');
+    expect(dropped.textContent).toContain('rewind the org to a checkpoint taken before it');
+    expect(screen.queryByTestId('seed-removal-not-kept')).toBeNull();
+  });
+
   it('shows a refused removal in the card', () => {
     render(<SeedRunRemoval runId="op-1" />);
     answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });

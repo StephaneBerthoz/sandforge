@@ -11,6 +11,7 @@ import type {
   SeedAutomationPreview,
   SeedRemovalResult,
   SeedRunRemovalInfo,
+  SeedRunDropped,
   SeedFitApplied,
   SeedFitProposal,
 } from '../seed.types.js';
@@ -206,10 +207,16 @@ export interface SeedRemovalInfoRequest extends BaseMessage {
   payload: { runId: string };
 }
 
-/** `seed:removal:info:response`. Extension -> WebView. `null` when nothing of the run is kept. */
+/**
+ * `seed:removal:info:response`. Extension -> WebView. `null` when nothing of
+ * the run is kept; then, for a run the bound on the runs' files dropped with
+ * its records still in its org, what is kept of it (`dropped`), and the line
+ * of `sandforge cleanup` that lists, without deleting, what was created in
+ * that org since the run's day (`cleanupLine`).
+ */
 export interface SeedRemovalInfoResponse extends BaseMessage {
   type: 'seed:removal:info:response';
-  payload: { info: SeedRunRemovalInfo | null };
+  payload: { info: SeedRunRemovalInfo | null; dropped?: SeedRunDropped; cleanupLine?: string };
 }
 
 /**

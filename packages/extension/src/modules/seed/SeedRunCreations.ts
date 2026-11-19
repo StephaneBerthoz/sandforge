@@ -40,7 +40,9 @@
  * Seeds on scratch orgs, pushed out a template seed of thousands of records
  * that was never removed, without a word. The files are bounded on bytes as
  * a Sync run's are, which caps what they take on disk, and a run the hard
- * bound drops is said (`SyncRunCreationsDeps.onDropped`).
+ * bound drops is said (`SyncRunCreationsDeps.onDropped`), and kept in the
+ * index of dropped runs (`SeedRunsDropped`): asked for again, it is said with
+ * what it left and where.
  *
  * A run the command line made is taken back from the summary it printed
  * (`sandforge seed --remove`), which builds the run the same way
@@ -49,7 +51,7 @@
  * summary kept what it created in memory alone.
  */
 
-import type { ApiName, RunCheckpointTaken } from '@sandforge/shared';
+import type { ApiName, RunCheckpointTaken, SeedRunDropped } from '@sandforge/shared';
 import {
   IDS_PER_LINE,
   nodeSyncRunCreations,
@@ -61,6 +63,7 @@ import {
   type SyncRunRemovalState,
 } from '../sync/SyncRunCreations.js';
 import type { SyncRemovalStateStore } from '../sync/SyncRunRemoval.js';
+import { nodeSeedRunsDropped, type SeedRunsDropped } from './seedRunsDropped.js';
 
 /** Runs removed with nothing left kept at most; the oldest of them goes past it. */
 export const SEED_RUNS_KEPT = 20;
@@ -212,15 +215,24 @@ export interface SeedRunRecorder {
 
 /**
  * The store over Node's file system, under the extension's storage directory.
+ * A run the files' hard bound drops though its records are still in its org
+ * is kept in the index of dropped runs beside them.
  *
- * @param onDropped - Told of a run the files' hard bound dropped though its
- *   records are still in its org (`SyncRunCreationsDeps.onDropped`).
+ * @param onDropped - Told of such a run too (`SyncRunCreationsDeps.onDropped`).
  */
 export function nodeSeedRunCreations(
   storagePath: string,
   onDropped?: (run: SyncRunKept) => void,
 ): SeedRunCreations {
-  return new SeedRunCreations(nodeSyncRunCreations(storagePath, SEED_RUNS_DIR, onDropped));
+  const dropped = nodeSeedRunsDropped(storagePath);
+  return new SeedRunCreations(
+    nodeSyncRunCreations(storagePath, SEED_RUNS_DIR, (run) => {
+      void dropped.note(run);
+      onDropped?.(run);
+    }),
+    SEED_RUNS_KEPT,
+    dropped,
+  );
 }
 
 /** The Seed runs of the panel and what their removals did: see the module's comment. */
@@ -230,10 +242,13 @@ export class SeedRunCreations implements SyncRemovalStateStore {
    *   {@link SEED_RUNS_DIR}.
    * @param max - Runs removed with nothing left kept at most: {@link SEED_RUNS_KEPT}
    *   unless a test sets another.
+   * @param droppedRuns - The runs the files' hard bound dropped, their
+   *   records still in their org: none kept when not given.
    */
   constructor(
     private readonly runs: SyncRunCreations,
     private readonly max: number = SEED_RUNS_KEPT,
+    private readonly droppedRuns?: SeedRunsDropped,
   ) {}
 
   /**
@@ -382,6 +397,14 @@ export class SeedRunCreations implements SyncRemovalStateStore {
   /** What a run kept, with what its removals did; undefined when nothing of it is kept. */
   get(runId: string): Promise<SyncRunKept | undefined> {
     return this.runs.get(runId);
+  }
+
+  /**
+   * What is kept of a run the files' hard bound dropped, its records still in
+   * its org: undefined for any other run, kept or not.
+   */
+  async dropped(runId: string): Promise<SeedRunDropped | undefined> {
+    return this.droppedRuns?.find(runId);
   }
 
   /** Every run kept, newest first. */

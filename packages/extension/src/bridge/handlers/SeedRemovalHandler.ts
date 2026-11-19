@@ -2,6 +2,7 @@ import type {
   ForgeTargetAutomation,
   GuardDecision,
   SeedRemovalResult,
+  SeedRunDropped,
   SeedRunRemovalInfo,
 } from '@sandforge/shared';
 import {
@@ -70,6 +71,7 @@ import { answerJobsInFlight, jobAnsweredLines } from '../../modules/sync/inFligh
 import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import { droppedCleanupLine, droppedRunWords } from '../../modules/seed/seedRunsDropped.js';
 import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
@@ -413,6 +415,36 @@ export class SeedRemovalHandler implements DomainHandler {
     return run ? this.withJobAnswered(run) : undefined;
   }
 
+  /**
+   * The `sandforge cleanup` line that lists, without deleting, what was
+   * created in the org a dropped run wrote to since its day, by the alias the
+   * org is connected under; `<alias>` when it is no longer connected.
+   */
+  private cleanupLineOf(dropped: SeedRunDropped): string {
+    const org = this.deps.orgManager.getOrg(dropped.targetOrgId);
+    return droppedCleanupLine(dropped, 'npx sandforge cleanup', org?.alias ?? '<alias>');
+  }
+
+  /**
+   * What `NOT_KEPT` says of a run nothing of which is kept: of one the bound
+   * on the runs' files dropped, its records still in its org, when it was
+   * dropped, what it left, and the cleanup line that lists them, before the
+   * rewind and the emptying; it said only that the run had created nothing
+   * or been dropped.
+   */
+  private notKeptWords(dropped: SeedRunDropped | undefined): string {
+    const otherWays =
+      'rewind the org to a checkpoint taken before it, or empty its objects (DataOps, Cleanup, ' +
+      'Empty objects), which deletes all their records.';
+    if (!dropped) {
+      return (
+        'Nothing this run created is kept: it created nothing, or was dropped to make room ' +
+        `for newer seeds. To take its records back, ${otherWays}`
+      );
+    }
+    return `${droppedRunWords(dropped, this.cleanupLineOf(dropped))} Or ${otherWays}`;
+  }
+
   private async handleInfo(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
@@ -424,10 +456,18 @@ export class SeedRemovalHandler implements DomainHandler {
     if (!parsed) return;
     try {
       const run = await this.runOf(parsed.runId);
+      // Nothing of it kept: what the index of dropped runs says of it, if anything.
+      const dropped = run ? undefined : await this.creations?.dropped(parsed.runId);
       const response = buildResponse(this.deps, msg, 'seed:removal:info:response', {
         info: run
           ? ((await this.withScenario(this.infoOf(run))) as unknown as Record<string, unknown>)
           : null,
+        ...(dropped
+          ? {
+              dropped: dropped as unknown as Record<string, unknown>,
+              cleanupLine: this.cleanupLineOf(dropped),
+            }
+          : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -779,14 +819,7 @@ export class SeedRemovalHandler implements DomainHandler {
     const store = this.creations;
     const run = await this.runOf(parsed.runId);
     if (!store || !run) {
-      this.refuse(
-        msg,
-        'Nothing this run created is kept: it created nothing, or was dropped to make room ' +
-          'for newer seeds. To take its records back, rewind the org to a checkpoint taken ' +
-          'before it, or empty its objects (DataOps, Cleanup, Empty objects), which deletes all ' +
-          'their records.',
-        'NOT_KEPT',
-      );
+      this.refuse(msg, this.notKeptWords(await store?.dropped(parsed.runId)), 'NOT_KEPT');
       return;
     }
     const again = parsed.again === true;

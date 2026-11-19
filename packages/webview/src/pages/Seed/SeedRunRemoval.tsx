@@ -7,9 +7,11 @@ import type {
   RewoundMark,
   SeedRemovalRefusalCode,
   SeedRemovalResult,
+  SeedRunDropped,
   SeedRunRemovalInfo,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
+import { listWords } from '../../utils/listWords';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -170,11 +172,11 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   const { sweep, setSweep, ticks, setTicks, asked } = useRemovalSweep();
   /** The confirmation's box: the removal mutes what it fires, through the org's own bypass. */
   const [muteAutomation, setMuteAutomation] = useState(false);
-  const info = useBridgeQuery<{ info: SeedRunRemovalInfo | null }>(
-    'seed:removal:info',
-    { runId },
-    { errorType: ERROR_CHANNEL },
-  );
+  const info = useBridgeQuery<{
+    info: SeedRunRemovalInfo | null;
+    dropped?: SeedRunDropped;
+    cleanupLine?: string;
+  }>('seed:removal:info', { runId }, { errorType: ERROR_CHANNEL });
   const removal = useBridgeMutation<RemoveAnswer>('seed:remove', {
     responseType: 'seed:remove:response',
     errorType: ERROR_CHANNEL,
@@ -204,6 +206,42 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   }, [answered, refused, refetch]);
 
   const kept = info.data?.info;
+  // Dropped by the bound on the runs' files, its records still in its org:
+  // what it left and where, and the line that lists them. It said the run
+  // was dropped or had created nothing, and named a rewind or an emptying of
+  // its objects alone.
+  const dropped = info.data?.dropped;
+  const cleanupLine = info.data?.cleanupLine;
+  if (info.data && !kept && dropped && cleanupLine) {
+    const left = dropped.left.reduce((sum, { count }) => sum + count, 0);
+    return (
+      <div className="flex flex-col gap-1" data-testid="seed-removal-dropped">
+        <p className="text-[11px] text-text-secondary">
+          {t('seed.removal.dropped', {
+            count: left,
+            formatted: formatNumber(left),
+            org: orgDisplayName(
+              orgs.find((o) => o.id === dropped.targetOrgId),
+              dropped.targetOrgId,
+            ),
+            date:
+              formatStoredDate(dropped.droppedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+            objects: listWords(
+              dropped.left.map(({ objectApiName }) => objectApiName),
+              (key) => t(key),
+            ),
+          })}
+        </p>
+        <code
+          className="rounded-sm border border-subtle bg-surface-1 px-2 py-1 font-mono text-[11px] break-all select-all"
+          data-testid="seed-removal-cleanup-line"
+        >
+          {cleanupLine}
+        </code>
+        <p className="text-[11px] text-text-secondary">{t('seed.removal.droppedWays')}</p>
+      </div>
+    );
+  }
   if (info.data && !kept) {
     return (
       <p className="text-[11px] text-text-secondary" data-testid="seed-removal-not-kept">
