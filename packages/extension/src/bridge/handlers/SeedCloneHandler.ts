@@ -243,23 +243,30 @@ function megabytesWords(mb: number): string {
 }
 
 /**
- * The clone's storage refusal in the words of the log and of the page's
- * fallback, with the ways out its wizard has: a narrower filter on the
+ * What the clone's records take of the data storage against what the target
+ * has left, and the ways out its wizard has: a narrower filter on the
  * heaviest objects, leaving them out, and the sample of the whole source that
  * Forge draws to fit the target. A LIMIT would not do: the records it leaves
  * out would be named by those it keeps, and refused.
  */
-function cloneStorageMessage(refusal: CloneStorageRefusal, target: string): string {
+function cloneStorageWords(refusal: CloneStorageRefusal, target: string): string {
   const heaviest = refusal.heaviest
     .map((o) => `${o.objectApiName} (${o.rows} records, ${megabytesWords(o.mb)} MB)`)
     .join(', ');
   return (
-    `The clone was refused before it wrote anything: its records take about ` +
-    `${megabytesWords(refusal.estimateMB)} MB of data storage, and ${target} has ` +
-    `${refusal.remainingMB} MB left of ${refusal.maxMB} MB. The heaviest: ${heaviest}. Narrow ` +
-    'their filter or leave them out, then preview again; or copy a sample of the source that ' +
-    'fits with Forge (Depth ALL, Records per object: A sample that fits the target). Nothing ' +
-    'was written.'
+    `its records take about ${megabytesWords(refusal.estimateMB)} MB of data storage, and ` +
+    `${target} has ${refusal.remainingMB} MB left of ${refusal.maxMB} MB. The heaviest: ` +
+    `${heaviest}. Narrow their filter or leave them out, then preview again; or copy a sample ` +
+    'of the source that fits with Forge (Depth ALL, Records per object: A sample that fits the ' +
+    'target).'
+  );
+}
+
+/** The clone's storage refusal in the words of the log and of the page's fallback. */
+function cloneStorageMessage(refusal: CloneStorageRefusal, target: string): string {
+  return (
+    `The clone was refused before it wrote anything: ${cloneStorageWords(refusal, target)} ` +
+    'Nothing was written.'
   );
 }
 
@@ -1132,36 +1139,17 @@ export class SeedCloneHandler implements DomainHandler {
       for (const line of emails?.unknown ?? []) {
         this.deps.log(`[WARN] seed:clone:execute ${operationId}: ${line}`);
       }
-      if (emails?.refusal && emails.figures) {
-        const refusal = cloneEmailsRefusal(emails.figures);
-        recordWriteRun(this.deps, {
-          ...run,
-          outcome: 'stopped',
-          source: undefined,
-          code: CLONE_FAILURE_CODES.emailsExceeded,
-        });
-        sendOperationFailed(this.deps, operationId, refusal, false, {
-          context: failure,
-          authored: true,
-          extraPayload: { code: CLONE_FAILURE_CODES.emailsExceeded, ...emails.figures },
-        });
-        settle(new Error(refusal));
-        return;
-      }
-
       // The records the preview counted against the data storage and the
       // daily API requests the target has left, both read from one answer,
       // before anything is written. An org that would not say is said in the
       // log, and holds nothing back. With a checkpoint asked, its requests
-      // among them, and the storage for its question to say.
+      // among them, and the storage for its question to say. Read before the
+      // refusal for the emails, which says the storage's too: refused for
+      // its emails alone, a clone met the refusal for its storage only once
+      // the emails were dealt with.
       const limits: DataStorage | { unread: string } = await readDataStorage(targetConn).catch(
         (err: unknown) => ({ unread: extractErrorMessage(err) }),
       );
-      const budget: ApiBudget | { unread: string } | undefined = !('unread' in limits)
-        ? limits.dailyApiRequests
-        : await readApiBudget(targetConn).catch((err: unknown) => ({
-            unread: extractErrorMessage(err),
-          }));
       // Past the storage the target has left, the clone is refused before
       // the first write. Copied from a production org into a Developer
       // Edition or a Developer sandbox under a wide filter, a clone wrote
@@ -1171,6 +1159,43 @@ export class SeedCloneHandler implements DomainHandler {
       // else. An upsert may update what the target holds, which takes no
       // room: its question says the storage, and nothing refuses it.
       const overStorage = parsed.upsert ? undefined : cloneStorageRefusal(counted, limits);
+      if (emails?.refusal && emails.figures) {
+        const refusal = cloneEmailsRefusal(
+          emails.figures,
+          overStorage
+            ? `It would be refused for its data storage too: ${cloneStorageWords(overStorage, targetName)}`
+            : undefined,
+        );
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CLONE_FAILURE_CODES.emailsExceeded,
+        });
+        sendOperationFailed(this.deps, operationId, refusal, false, {
+          context: failure,
+          authored: true,
+          extraPayload: {
+            code: CLONE_FAILURE_CODES.emailsExceeded,
+            ...emails.figures,
+            // The page says it from its figures, in its language.
+            ...(overStorage
+              ? {
+                  alsoRefused: [
+                    { code: CLONE_FAILURE_CODES.storageExceeded, org: targetName, ...overStorage },
+                  ],
+                }
+              : {}),
+          },
+        });
+        settle(new Error(refusal));
+        return;
+      }
+      const budget: ApiBudget | { unread: string } | undefined = !('unread' in limits)
+        ? limits.dailyApiRequests
+        : await readApiBudget(targetConn).catch((err: unknown) => ({
+            unread: extractErrorMessage(err),
+          }));
       if (overStorage) {
         const message = cloneStorageMessage(overStorage, targetName);
         recordWriteRun(this.deps, {
@@ -2342,8 +2367,10 @@ export class SeedCloneHandler implements DomainHandler {
  * Why a clone was refused before it wrote anything, for the logs: the emails
  * its records would make the target send past what it has left today, and the
  * ways out. The page says it from the figures, in its language.
+ *
+ * @param also - What else refuses the clone, said before "Nothing was written."
  */
-function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
+function cloneEmailsRefusal(figures: SeedEmailRefusalFigures, also?: string): string {
   const ways = [
     `narrow the filters of ${figures.objects.join(', ')} or leave them out`,
     `turn off ${figures.senders.map((name) => `"${name}"`).join(', ')}`,
@@ -2361,7 +2388,7 @@ function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
     `send about ${emailsOfLimit(figures.emails, figures.limit)}, ${figures.remaining} of ${figures.max} left today. ` +
     'Past what is left, a flow that sends in the save refuses its record ' +
     "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
-    `To clone them, ${ways.join('; or ')}. Nothing was written.`
+    `To clone them, ${ways.join('; or ')}. ${also ? `${also} ` : ''}Nothing was written.`
   );
 }
 

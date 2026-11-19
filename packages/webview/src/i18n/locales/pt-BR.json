@@ -1075,6 +1075,7 @@
         "CLONE_FAILED": "A clonagem parou antes de terminar.",
         "CLONE_EMAILS_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Restrinja os filtros de {{objects}} ou retire-os, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
         "CLONE_STORAGE_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Os mais pesados: {{heaviest}}. Restrinja o filtro deles ou retire-os e gere a prévia de novo, ou copie com o Forge uma amostra da origem que caiba: Profundidade ALL, Registros por objeto “Uma amostra que caiba no destino”.",
+        "storageToo": "Ela também seria recusada pelo armazenamento de dados: seus registros ocupam cerca de {{estimate}} MB, e restam {{remaining}} MB de {{max}} MB em {{org}}. Os mais pesados: {{heaviest}}. Restrinja o filtro deles ou retire-os e gere a prévia de novo, ou copie com o Forge uma amostra da origem que caiba: Profundidade ALL, Registros por objeto “Uma amostra que caiba no destino”.",
         "heavyObject_one": "{{object}} ({{formatted}} registro, {{mb}} MB)",
         "heavyObject_other": "{{object}} ({{formatted}} registros, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino.",

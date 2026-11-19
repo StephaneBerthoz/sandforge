@@ -1075,6 +1075,7 @@
         "CLONE_FAILED": "La clonación se detuvo antes de finalizar.",
         "CLONE_EMAILS_EXCEEDED": "La clonación se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Restrinja los filtros de {{objects}} o quítelos, desactive {{senders}} o asígnese el permiso que los silencia.",
         "CLONE_STORAGE_EXCEEDED": "La clonación se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Los más pesados: {{heaviest}}. Restrinja su filtro o quítelos y vuelva a generar la vista previa, o copie con Forge una muestra del origen que quepa: Profundidad ALL, Registros por objeto «Una muestra que quepa en el destino».",
+        "storageToo": "También se rechazaría por su almacenamiento de datos: sus registros ocupan unos {{estimate}} MB, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Los más pesados: {{heaviest}}. Restrinja su filtro o quítelos y vuelva a generar la vista previa, o copie con Forge una muestra del origen que quepa: Profundidad ALL, Registros por objeto «Una muestra que quepa en el destino».",
         "heavyObject_one": "{{object}} ({{formatted}} registro, {{mb}} MB)",
         "heavyObject_other": "{{object}} ({{formatted}} registros, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "La clonación se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino.",

@@ -2373,6 +2373,57 @@ describe('SeedCloneHandler', () => {
         ]);
       });
 
+      it('says, refusing a clone for its emails, that its records take more data storage than the target has left too', async () => {
+        // Refused for the emails alone, the clone was refused for its storage
+        // once the emails were dealt with: the second refusal came only after
+        // the first was lifted.
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async () => ({ keyPrefix: '003', fields: [], recordTypeInfos: [] })),
+          request: vi.fn(async () => ({
+            SingleEmail: { Max: 15, Remaining: 15 },
+            DailyWorkflowEmails: { Max: 8040, Remaining: 8040 },
+            DataStorageMB: { Max: 5, Remaining: 5 },
+            DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+          })),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        handler.setTargetAutomation({ read: vi.fn(async () => contactFlow()) });
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+          alias: 'my-dev-org',
+          orgType: 'Developer',
+        } as never);
+        await previewContacts(3000);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(posted(deps, 'operation:failed')).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              code: 'CLONE_EMAILS_EXCEEDED',
+              emails: 3000,
+              error: expect.stringMatching(
+                /send about 3000 single emails, 15 of 15 left today\. .* It would be refused for its data storage too: its records take about 5\.86 MB of data storage, and my-dev-org has 5 MB left of 5 MB\. The heaviest: Contact \(3000 records, 5\.86 MB\)\. .* Nothing was written\.$/,
+              ),
+              alsoRefused: [
+                {
+                  code: 'CLONE_STORAGE_EXCEEDED',
+                  org: 'my-dev-org',
+                  estimateMB: (3000 * 2048) / (1024 * 1024),
+                  remainingMB: 5,
+                  maxMB: 5,
+                  heaviest: [
+                    { objectApiName: 'Contact', rows: 3000, mb: (3000 * 2048) / (1024 * 1024) },
+                  ],
+                },
+              ],
+            }),
+          }),
+        ]);
+      });
+
       it('says one email in the singular as it refuses the clone of one contact', async () => {
         developerEditionTarget(0);
         handler.setTargetAutomation({ read: vi.fn(async () => contactFlow()) });

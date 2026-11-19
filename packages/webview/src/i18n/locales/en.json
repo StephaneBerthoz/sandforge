@@ -1075,6 +1075,7 @@
         "CLONE_FAILED": "The clone stopped before it finished.",
         "CLONE_EMAILS_EXCEEDED": "The clone was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Narrow the filters of {{objects}} or leave them out, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
         "CLONE_STORAGE_EXCEEDED": "The clone was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. The heaviest: {{heaviest}}. Narrow their filter or leave them out, then preview again; or copy a sample of the source that fits with Forge: Depth ALL, Records per object “A sample that fits the target”.",
+        "storageToo": "It would be refused for its data storage too: its records take about {{estimate}} MB, and {{org}} has {{remaining}} MB left of {{max}} MB. The heaviest: {{heaviest}}. Narrow their filter or leave them out, then preview again; or copy a sample of the source that fits with Forge: Depth ALL, Records per object “A sample that fits the target”.",
         "heavyObject_one": "{{object}} ({{formatted}} record, {{mb}} MB)",
         "heavyObject_other": "{{object}} ({{formatted}} records, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "The clone was refused before it wrote anything: it takes more API requests than the target org has left today.",

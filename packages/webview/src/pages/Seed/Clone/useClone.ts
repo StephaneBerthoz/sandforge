@@ -96,10 +96,14 @@ function emailsRefusal(
  * language, from the figures the host measured: what they take, what the
  * target has left, and the heaviest objects with the ways out of each.
  * `undefined` when they are not all there.
+ *
+ * @param key - The sentence that says it: the refusal's own, or the one that
+ *   follows another refusal (`storageToo`).
  */
 function storageRefusal(
   payload: Record<string, unknown>,
   t: (key: string, options?: Record<string, unknown>) => string,
+  key = 'seed.clone.error.CLONE_STORAGE_EXCEEDED',
 ): string | undefined {
   const { org, estimateMB, remainingMB, maxMB, heaviest } = payload;
   const objects = Array.isArray(heaviest)
@@ -121,7 +125,7 @@ function storageRefusal(
   ) {
     return undefined;
   }
-  return t('seed.clone.error.CLONE_STORAGE_EXCEEDED', {
+  return t(key, {
     org,
     estimate: roundedUpMegabytes(estimateMB),
     remaining: formatNumber(remainingMB),
@@ -138,6 +142,28 @@ function storageRefusal(
       (key) => t(key),
     ),
   });
+}
+
+/**
+ * What a clone refused for its emails says of its storage, when its records
+ * take more than the target has left too (`alsoRefused`): said for the emails
+ * alone, the refusal for the storage came only once the emails were dealt
+ * with. `undefined` when the storage does not refuse it, or its figures are
+ * not all there.
+ */
+function storageToo(
+  payload: Record<string, unknown>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  const { alsoRefused } = payload;
+  if (!Array.isArray(alsoRefused)) return undefined;
+  const storage = alsoRefused.find(
+    (refused): refused is Record<string, unknown> =>
+      typeof refused === 'object' &&
+      refused !== null &&
+      (refused as Record<string, unknown>).code === 'CLONE_STORAGE_EXCEEDED',
+  );
+  return storage ? storageRefusal(storage, t, 'seed.clone.error.storageToo') : undefined;
 }
 
 /**
@@ -347,7 +373,15 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     // Refused for its emails, the clone says how many against how many left,
     // and the ways out: from the figures, as a seed refused for them says it.
     if (code === 'CLONE_EMAILS_EXCEEDED') {
-      setError(emailsRefusal(failed, t) ?? t('seed.clone.error.generic'));
+      const emails = emailsRefusal(failed, t);
+      const storage = storageToo(failed, t);
+      setError(
+        emails === undefined
+          ? t('seed.clone.error.generic')
+          : storage === undefined
+            ? emails
+            : `${emails} ${storage}`,
+      );
       return;
     }
     // Refused for its storage, the clone says what its records take against

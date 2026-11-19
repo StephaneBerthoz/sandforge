@@ -1134,6 +1134,50 @@ describe('useClone', () => {
     expect(result.current.error).not.toContain('The clone was refused');
   });
 
+  it('says, refusing a clone for its emails, that its storage refuses it too, from the figures of both', () => {
+    // Said for the emails alone, the refusal for the storage came only once
+    // the emails were dealt with.
+    const { result, rerender } = previewed();
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'The clone was refused before it wrote anything: …',
+      'CLONE_EMAILS_EXCEEDED',
+      {
+        org: 'my-dev-org',
+        limit: 'SingleEmail',
+        emails: 3000,
+        remaining: 15,
+        max: 15,
+        objects: ['Contact'],
+        senders: ['Welcome Email'],
+        bypasses: [],
+        alsoRefused: [
+          {
+            code: 'CLONE_STORAGE_EXCEEDED',
+            org: 'my-dev-org',
+            estimateMB: 5.859,
+            remainingMB: 5,
+            maxMB: 5,
+            heaviest: [{ objectApiName: 'Contact', rows: 3000, mb: 5.859 }],
+          },
+        ],
+      },
+    );
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toContain('about 3000, with 15 of 15 left today');
+    expect(result.current.error).toContain(
+      ' It would be refused for its data storage too: its records take about 5.86 MB, and ' +
+        'my-dev-org has 5 MB left of 5 MB. The heaviest: Contact (3,000 records, 5.86 MB).',
+    );
+  });
+
   it('says, from its figures, why a clone was refused for its storage, with its heaviest objects and the sample Forge draws', () => {
     const { result, rerender } = previewed();
     act(() => {
