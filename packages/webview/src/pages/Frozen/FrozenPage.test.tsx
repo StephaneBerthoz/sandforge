@@ -107,7 +107,6 @@ function resetStore(): void {
     selection: null,
     controlReport: null,
     extractSummary: null,
-    manifest: null,
     progress: [],
     loadReport: null,
     verdict: null,

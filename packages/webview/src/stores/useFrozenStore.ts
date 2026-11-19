@@ -3,7 +3,6 @@ import type {
   FrozenControlReport,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
-  FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenSelectionSummary,
   FrozenStatusInfo,
@@ -70,8 +69,6 @@ export interface FrozenState {
   controlReport: FrozenControlReport | null;
   /** Latest extraction summary. */
   extractSummary: FrozenExtractSummary | null;
-  /** Latest frozen manifest. */
-  manifest: FrozenManifestInfo | null;
   /** Load/verify progress events (most recent last, capped). */
   progress: FrozenLoadProgress[];
   /** Latest load report. */
@@ -96,7 +93,6 @@ export interface FrozenState {
   setSelection: (selection: FrozenSelectionSummary | null) => void;
   setControlReport: (report: FrozenControlReport | null) => void;
   setExtractSummary: (summary: FrozenExtractSummary | null) => void;
-  setManifest: (manifest: FrozenManifestInfo | null) => void;
   appendProgress: (event: FrozenLoadProgress) => void;
   clearProgress: () => void;
   setLoadReport: (report: FrozenLoadReportInfo | null) => void;
@@ -124,7 +120,6 @@ export const useFrozenStore = create<FrozenState>((set) => ({
   selection: null,
   controlReport: null,
   extractSummary: null,
-  manifest: null,
   progress: [],
   loadReport: null,
   verdict: null,
@@ -155,9 +150,6 @@ export const useFrozenStore = create<FrozenState>((set) => ({
   },
   setExtractSummary(extractSummary: FrozenExtractSummary | null): void {
     set({ extractSummary });
-  },
-  setManifest(manifest: FrozenManifestInfo | null): void {
-    set({ manifest });
   },
   appendProgress(event: FrozenLoadProgress): void {
     set((state) => ({ progress: [...state.progress, event].slice(-MAX_PROGRESS_EVENTS) }));

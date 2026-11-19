@@ -6,7 +6,6 @@ import type {
   BaseMessage,
   FrozenControlCheck,
   FrozenExtractResponse,
-  FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenSelectProgress,
   FrozenSelectResponse,
@@ -160,7 +159,6 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   const controlReport = useFrozenStore((s) => s.controlReport);
   const setConfig = useFrozenStore((s) => s.setConfig);
   const setExtractSummary = useFrozenStore((s) => s.setExtractSummary);
-  const setManifest = useFrozenStore((s) => s.setManifest);
   const lastError = useFrozenStore((s) => s.lastError);
   const pickedSource = useFrozenStore((s) => s.sourceOrgId);
   const setSourceOrgId = useFrozenStore((s) => s.setSourceOrgId);
@@ -284,9 +282,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
       recordCount: data.recordCount,
       fileCount: data.files.length,
     });
-    setManifest(data.manifest as FrozenManifestInfo);
+    // The manifest it wrote comes back with the status the page reads again.
     onRefetchStatus();
-  }, [extractMutation.data, setExtractSummary, setManifest, onRefetchStatus]);
+  }, [extractMutation.data, setExtractSummary, onRefetchStatus]);
 
   const handleSaveConfig = (): void => {
     setJsonError(null);

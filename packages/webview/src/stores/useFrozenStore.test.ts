@@ -3,7 +3,6 @@ import type {
   FrozenControlReport,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
-  FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenSelectionSummary,
   FrozenStatusInfo,
@@ -68,7 +67,6 @@ const CHANNEL_ERROR: FrozenChannelError = {
  * opaque to it — it stores them and hands them back.
  */
 const STATUS = { configured: true, sasDir: '/sas' } as unknown as FrozenStatusInfo;
-const MANIFEST = { version: '1.0.0', status: 'frozen' } as unknown as FrozenManifestInfo;
 const LOAD_REPORT = { status: 'completed', orgId: 'org-1' } as unknown as FrozenLoadReportInfo;
 
 /** Every action the store exposes, as exercised by the tests below. */
@@ -81,7 +79,6 @@ const EXERCISED_ACTIONS = [
   'setSelection',
   'setControlReport',
   'setExtractSummary',
-  'setManifest',
   'appendProgress',
   'clearProgress',
   'setLoadReport',
@@ -109,7 +106,8 @@ describe('useFrozenStore', () => {
     expect(state.selection).toBeNull();
     expect(state.controlReport).toBeNull();
     expect(state.extractSummary).toBeNull();
-    expect(state.manifest).toBeNull();
+    // No manifest of its own: the status carries the one the page shows.
+    expect(state).not.toHaveProperty('manifest');
     expect(state.progress).toEqual([]);
     expect(state.loadReport).toBeNull();
     expect(state.verdict).toBeNull();
@@ -185,13 +183,6 @@ describe('useFrozenStore', () => {
       expect(useFrozenStore.getState().extractSummary).toEqual(EXTRACT_SUMMARY);
       useFrozenStore.getState().setExtractSummary(null);
       expect(useFrozenStore.getState().extractSummary).toBeNull();
-    });
-
-    it('stores and clears the manifest', () => {
-      useFrozenStore.getState().setManifest(MANIFEST);
-      expect(useFrozenStore.getState().manifest).toBe(MANIFEST);
-      useFrozenStore.getState().setManifest(null);
-      expect(useFrozenStore.getState().manifest).toBeNull();
     });
 
     it('stores and clears the load report', () => {

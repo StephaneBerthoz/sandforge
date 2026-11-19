@@ -155,6 +155,13 @@ describe('FrozenPage — the status it reads again', () => {
     answerStatuses(0);
   });
 
+  it('asks for the status as it opens, and for no manifest, which the status carries', () => {
+    // The page read the manifest apart into a field of its store that
+    // nothing read, the status's own manifest being the one it shows.
+    expect(sentAll('frozen:status').length).toBeGreaterThan(0);
+    expect(sentAll('frozen:manifest:get')).toEqual([]);
+  });
+
   it('reads the status once after a load answers, however many answers the status gets', () => {
     fireEvent.click(screen.getByTestId('frozen-load-run'));
     const load = sentAll('frozen:load').pop();

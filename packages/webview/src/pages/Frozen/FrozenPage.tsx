@@ -1,7 +1,7 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Snowflake } from 'lucide-react';
-import type { FrozenLastVerifyInfo, FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
+import type { FrozenLastVerifyInfo, FrozenStatusInfo } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
@@ -78,15 +78,12 @@ export const FrozenPage: React.FC = () => {
   const setTab = useFrozenStore((s) => s.setTab);
   const status = useFrozenStore((s) => s.status);
   const setStatus = useFrozenStore((s) => s.setStatus);
-  const setManifest = useFrozenStore((s) => s.setManifest);
   const targetOrgId = useFrozenStore((s) => s.targetOrgId);
 
   useFrozenPushChannels();
 
+  // The status carries the manifest the page shows: none is read apart.
   const statusQuery = useBridgeQuery<{ status: FrozenStatusInfo }>('frozen:status');
-  const manifestQuery = useBridgeQuery<{ manifest: FrozenManifestInfo | null }>(
-    'frozen:manifest:get',
-  );
 
   useEffect(() => {
     if (statusQuery.data?.status) setStatus(statusQuery.data.status);
@@ -105,20 +102,12 @@ export const FrozenPage: React.FC = () => {
     else if (statusFailed) setTab('extract');
   }, [tab, status, statusFailed, setTab]);
 
-  useEffect(() => {
-    if (manifestQuery.data) setManifest(manifestQuery.data.manifest);
-  }, [manifestQuery.data, setManifest]);
-
-  // The tabs ask for these once per answer they get. Made anew on every
-  // render, a callback changed with every status the page read, and the tab
-  // asked again: one load's answer set the page asking for the status for as
-  // long as it was open.
+  // The tabs ask for it once per answer they get: the query's own callback,
+  // the same from one render to the next. Made anew on every render, a
+  // callback changed with every status the page read, and the tab asked
+  // again: one load's answer set the page asking for the status for as long
+  // as it was open.
   const { refetch: refetchStatus } = statusQuery;
-  const { refetch: refetchManifest } = manifestQuery;
-  const refetchStatusAndManifest = useCallback(() => {
-    refetchStatus();
-    refetchManifest();
-  }, [refetchStatus, refetchManifest]);
 
   /*
    * No org at all. With orgs but none selected the page opens: each tab
@@ -255,7 +244,7 @@ export const FrozenPage: React.FC = () => {
         onTabChange={(id) => setTab(id as FrozenTab)}
       />
 
-      {tab === 'extract' && <FrozenExtractTab onRefetchStatus={refetchStatusAndManifest} />}
+      {tab === 'extract' && <FrozenExtractTab onRefetchStatus={refetchStatus} />}
       {tab === 'load' && (
         <PartBoundary>
           <Suspense fallback={null}>
