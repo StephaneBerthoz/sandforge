@@ -1,14 +1,18 @@
 name: Stryker Mutation Testing
 
 # Mutation testing of packages/shared and of the extension's execution engine,
-# one Stryker config each. A run with no incremental cache takes about a
-# minute for packages/shared and two to four minutes for the extension engine,
-# so it runs on every push and pull request that changes the code it mutates,
-# nightly (06:00 UTC), and on manual dispatch.
+# one Stryker config each. Measured on the maintainer's machine in September
+# 2026, a run with no incremental cache took about a minute for
+# packages/shared and two to four minutes for the extension engine, so it runs
+# on every push and pull request that changes the code it mutates, nightly
+# (06:00 UTC), and on manual dispatch.
 #
-# On a GitHub runner the extension engine's initial test run alone has passed
-# the five minutes Stryker gives it by default (3 min 47 s on one run, cut at
-# 5 min 03 s on the next), so its config raises `dryRunTimeoutMinutes` to ten.
+# On a GitHub runner the extension engine's initial test run alone runs every
+# test that reaches the engine, 13 063 of the extension's 20 360 on 18 November
+# 2026, on one worker. It took 4 min 55 s to 9 min 43 s over forty runs in
+# November, and the ten minutes its config then gave it cut it on six runs of
+# 17 and 18 November, release pull requests among them; its config gives it
+# twenty.
 #
 # The paths are everything that changes what a run measures: the mutated code,
 # the test setup and runner config each suite loads, the Stryker configs, and
@@ -67,10 +71,15 @@ jobs:
   mutation:
     name: Stryker (${{ matrix.name }})
     runs-on: ubuntu-latest
-    # A full run, cache missed, takes one to four minutes; the extension's took
-    # past fifteen after the 1.73.0 wave changed most of what it mutates. The
-    # limit is there to stop a hung test runner, not to budget the run.
-    timeout-minutes: 30
+    # A full run, cache missed, takes one to four minutes on the maintainer's
+    # machine; the extension's took past fifteen after the 1.73.0 wave changed
+    # most of what it mutates. On a runner, cache restored, the extension's
+    # leg took up to 29 minutes (an initial test run of 9 min 36 s, then 18 min
+    # 53 s of mutants), and the thirty minutes this limit was then cut one at
+    # 399 mutants of 413. So the limit holds the twenty minutes its config
+    # gives the initial test run and half again the longest mutation phase
+    # seen. It is there to stop a hung test runner, not to budget the run.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

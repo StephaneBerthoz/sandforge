@@ -181,6 +181,49 @@ test('the Stryker workflow gives each config a run time its cold runs fit in', (
   assert.ok(Number(limit) > MINUTES[range[2]], `timeout-minutes ${limit} vs ${range[0]}`);
 });
 
+/**
+ * The extension leg on GitHub's runners, read from the logs of its runs of
+ * 17 to 19 November 2026, in seconds: the setup before Stryker starts, the
+ * initial test run, and the mutation phase after it. The longest of each over
+ * the forty runs since 3 November are here. On 44098161849 the job's own limit,
+ * thirty minutes then, cut the mutation phase at 399 mutants of 413, so its
+ * figure is the least that phase needed.
+ */
+const RUNNER_RUNS = [
+  { run: 44238683596, setup: 26, initial: 583, mutation: 544 },
+  { run: 44165161611, setup: 26, initial: 576, mutation: 1133 },
+  { run: 44249323534, setup: 29, initial: 563, mutation: 448 },
+  { run: 44098161849, setup: 27, initial: 556, mutation: 1224 },
+  { run: 44395185297, setup: 45, initial: 515, mutation: 581 },
+];
+
+test('the extension config gives its initial test run half again the longest a runner took', () => {
+  // At ten minutes Stryker cut it on six runs of 17 and 18 November, two
+  // release pull requests among them, while the same commits went green on
+  // other runs at 8 min 35 s: the tests that reach the engine had grown from
+  // 9 185 to 13 063 in a fortnight, and a runner's pace varies from run to run.
+  const ceiling = readConfig('stryker.extension.conf.json').dryRunTimeoutMinutes * 60;
+  const longest = Math.max(...RUNNER_RUNS.map(({ initial }) => initial));
+  assert.ok(
+    ceiling >= longest * 1.5,
+    `dryRunTimeoutMinutes allows ${ceiling} s, a runner took up to ${longest} s`,
+  );
+});
+
+test('the Stryker job outlasts its setup, the initial test run its configs allow and half again the longest mutation phase', () => {
+  const job = strykerYaml.slice(strykerYaml.indexOf('\njobs:'));
+  const limit = Number(job.match(/^\s+timeout-minutes: (\d+)/m)?.[1]) * 60;
+  // Stryker's own default is five minutes.
+  const ceiling =
+    Math.max(
+      ...matrixLegs(strykerYaml).map(({ config }) => readConfig(config).dryRunTimeoutMinutes ?? 5),
+    ) * 60;
+  const setup = Math.max(...RUNNER_RUNS.map((run) => run.setup));
+  const mutation = Math.max(...RUNNER_RUNS.map((run) => run.mutation));
+  const needed = setup + ceiling + mutation * 1.5;
+  assert.ok(limit >= needed, `timeout-minutes gives ${limit} s, a run may need ${needed} s`);
+});
+
 test('the score step fails when the script does, even though its output is piped', () => {
   // A step without `shell: bash` runs under `bash -e` with no pipefail: a
   // malformed report makes the script throw, `tee` exits 0, and the step goes
