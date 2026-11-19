@@ -739,13 +739,16 @@ export function isOpportunityTeamObject(objectApiName: string): boolean {
 /**
  * What the platform writes a row of `objectApiName` with, in the words the
  * line of each object says it: an email's task, a person account's contact,
- * a contact's direct relation, the owner's member and split of an
- * opportunity, the role of the contact an opportunity goes in with.
+ * a contact's direct relation, the relation of a task's or an event's who,
+ * the owner's member and split of an opportunity, the role of the contact an
+ * opportunity goes in with.
  */
 export function writtenWithWords(objectApiName: string): string {
   if (objectApiName === 'Task') return 'their email';
   if (objectApiName === 'Contact') return 'their person account';
   if (objectApiName === ACCOUNT_CONTACT_RELATION) return 'their contact';
+  if (objectApiName === TASK_RELATION) return 'their task';
+  if (objectApiName === EVENT_RELATION) return 'their event';
   if (objectApiName === OPPORTUNITY_CONTACT_ROLE) return 'their opportunity, for its contact';
   return 'their opportunity, for its owner';
 }

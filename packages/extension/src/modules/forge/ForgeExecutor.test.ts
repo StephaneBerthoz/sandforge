@@ -2038,7 +2038,7 @@ describe('ForgeExecutor', () => {
       }),
     };
 
-    it('counts the direct relation the platform wrote with a contact the run created as going with it, never as kept', async () => {
+    it('counts the direct relation the platform wrote with a contact the run created as going with it, never as kept, and says it written by the platform', async () => {
       // Linked, it read as a record a removal of the run's records keeps: the
       // platform deletes it with its contact.
       const RELATION = '07k000000000001AAA';
@@ -2080,6 +2080,20 @@ describe('ForgeExecutor', () => {
       expect(inserted['AccountContactRelation'] ?? []).toEqual([]);
       expect(summary.existingSourceIds).toContain(RELATION);
       expect(summary.withTheirRecordSourceIds).toEqual([RELATION]);
+      // Its line, its summary and the results' list of what the target held
+      // said it "linked to records already in the target": the target had
+      // none before the run.
+      expect(
+        progressEvents.filter((e) => e.objectName === 'AccountContactRelation').pop(),
+      ).toMatchObject({
+        status: 'done',
+        message:
+          'Completed AccountContactRelation: 0 succeeded, 1 written by the platform with their contact, 0 failed',
+      });
+      expect(summary.writtenByThePlatform).toEqual([
+        { objectApiName: 'AccountContactRelation', rows: 1 },
+      ]);
+      expect(summary.existingRecords).toEqual([]);
     });
 
     it('fills in a renamed lookup in the second pass under the name the target has', async () => {
@@ -11472,11 +11486,15 @@ describe('ForgeExecutor', () => {
           object: 'EventRelation',
           rows: [{ Id: PLATFORM_RELATION, IsInvitee: true }],
         });
+        // The relation the platform wrote with the event the run inserted:
+        // said so, never as one the target held before the run.
         expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
           status: 'done',
           message:
-            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 failed',
+            'Completed EventRelation: 0 succeeded, 1 written by the platform with their event, 0 failed',
         });
+        expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'EventRelation', rows: 1 }]);
+        expect(summary.existingRecords.map((e) => e.objectApiName)).not.toContain('EventRelation');
       });
 
       it('says on the line that ends the relations when the target does not let the flag be updated', async () => {
@@ -11488,7 +11506,7 @@ describe('ForgeExecutor', () => {
         expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
           status: 'done',
           message:
-            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            'Completed EventRelation: 0 succeeded, 1 written by the platform with their event, 0 ' +
             'failed, 1 linked without IsInvitee: the target does not let it be updated',
         });
       });
@@ -11522,7 +11540,7 @@ describe('ForgeExecutor', () => {
         expect(sent).toEqual([[{ Id: PLATFORM_RELATION, IsInvitee: true, Status: 'Tentative' }]]);
         expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
           message:
-            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            'Completed EventRelation: 0 succeeded, 1 written by the platform with their event, 0 ' +
             `failed, 1 linked without IsInvitee: the target refused the update, ${TENTATIVE}, ` +
             `1 linked without Status: the target refused the update, ${TENTATIVE}`,
         });
@@ -11607,7 +11625,7 @@ describe('ForgeExecutor', () => {
           status: 'stopped',
           progress: 100,
           message:
-            'Stopped EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            'Stopped EventRelation: 0 succeeded, 1 written by the platform with their event, 0 ' +
             'failed, 1 not sent, 1 linked without IsInvitee: the run was cancelled before it was ' +
             'updated',
         });

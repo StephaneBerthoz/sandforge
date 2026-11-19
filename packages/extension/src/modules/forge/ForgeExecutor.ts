@@ -1705,8 +1705,10 @@ export interface ExecutionSummary {
    * Of `linkedCount`, per object, the rows linked to what the platform wrote
    * itself with a record the run created, or would on a dry run: the owner's
    * member and split of an opportunity, the contact of a person account, the
-   * task of an email. None of them was in the target before the run, which
-   * the rest of `linkedCount` was. Absent when there were none.
+   * task of an email, the direct relation of a contact to its account, the
+   * relation of a task's or an event's who. None of them was in the target
+   * before the run, which the rest of `linkedCount` was. Absent when there
+   * were none.
    */
   writtenByThePlatform?: Array<{ objectApiName: string; rows: number }>;
   /**
@@ -2098,6 +2100,11 @@ interface PageCarry {
   linked: number;
   /** Of `linked`, the rows linked to a record the run created itself. */
   linkedToCreated: number;
+  /**
+   * Of `linked`, the rows linked to what the platform wrote with a record the
+   * run created: see `BatchWriteResult.writtenByThePlatformCount`.
+   */
+  linkedByThePlatform: number;
   failed: number;
   alreadyExists: number;
   unidentified: number;
@@ -2193,6 +2200,7 @@ function emptyPageCarry(): PageCarry {
     updated: 0,
     linked: 0,
     linkedToCreated: 0,
+    linkedByThePlatform: 0,
     failed: 0,
     alreadyExists: 0,
     unidentified: 0,
@@ -4122,21 +4130,34 @@ function writtenBeforeNote(config: ForgeStageConfig, count: number): string {
  * What a line says of the rows linked to a record rather than written: those
  * linked to a record the target held before the run, and apart from them
  * those linked to a record the run created itself, which the target refused
- * as copies of it. Run on a whole org whose source repeats a value the target
- * keeps unique, a line said "13 linked to records already in the target" of
- * ten accounts linked to the account the run had just written for the first
- * of their pair, and three the target did hold.
+ * as copies of it, and those the platform wrote itself with a record the run
+ * created. Run on a whole org whose source repeats a value the target keeps
+ * unique, a line said "13 linked to records already in the target" of ten
+ * accounts linked to the account the run had just written for the first of
+ * their pair, and three the target did hold. The direct relation of a
+ * contact the run inserted, and the relation of the who of its event, were
+ * said so too.
  *
- * @param linked - The rows linked, of both kinds.
+ * @param linked - The rows linked, of every kind.
  * @param toCreated - Of them, those linked to a record of the run's own.
+ * @param byThePlatform - Of them, those the platform wrote with a record of
+ *   the run's (`BatchWriteResult.writtenByThePlatformCount`), and their object.
  */
-function linkedNote(linked: number, toCreated: number): string {
+function linkedNote(
+  linked: number,
+  toCreated: number,
+  byThePlatform?: { objectApiName: string; rows: number },
+): string {
   const own = Math.min(linked, Math.max(0, toCreated));
-  const held = linked - own;
+  const platform = Math.min(linked - own, Math.max(0, byThePlatform?.rows ?? 0));
+  const held = linked - own - platform;
   return (
     (held > 0 ? `, ${held} linked to records already in the target` : '') +
     (own > 0
       ? `, ${own} linked to records the run created (the target refused them as copies of those)`
+      : '') +
+    (byThePlatform && platform > 0
+      ? `, ${platform} written by the platform with ${writtenWithWords(byThePlatform.objectApiName)}`
       : '')
   );
 }
@@ -4152,19 +4173,25 @@ const PAGED_SAMPLES_KEPT = 3;
  * a write counts a node read whole: written, updated, linked, the rows the run
  * retried wrote, then the failures with the rows held back among them.
  *
+ * @param objectApiName - The object, whose words say what the platform wrote
+ *   its linked rows with (`writtenWithWords`).
  * @param outsideTheSample - Of Contact's line, the contacts the platform
  *   wrote with a person account of the sample whose contact the plan did not
  *   draw (`outsideTheSampleSaid`).
  */
 function pagedCounts(
   config: ForgeStageConfig,
+  objectApiName: string,
   carry: PageCarry,
   held: readonly HeldBackReason[],
   outsideTheSample = 0,
 ): string {
   const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
   const updated = carry.updated > 0 ? `, ${carry.updated} updated through their external id` : '';
-  const linked = linkedNote(carry.linked, carry.linkedToCreated);
+  const linked = linkedNote(carry.linked, carry.linkedToCreated, {
+    objectApiName,
+    rows: carry.linkedByThePlatform,
+  });
   const withTheirAccount = withTheirAccountNote(carry.withTheirAccount, outsideTheSample);
   const withTheirEmail =
     carry.withTheirEmail > 0
@@ -10736,7 +10763,7 @@ export class ForgeExecutor {
       progress: 100,
       message:
         `${end.label ?? `${config.dryRun ? 'Simulated' : 'Completed'} ${object}`}: ` +
-        `${pagedCounts(config, carry, held, outsideTheSampleSaid(state, object))}${end.note ?? ''}` +
+        `${pagedCounts(config, object, carry, held, outsideTheSampleSaid(state, object))}${end.note ?? ''}` +
         `${ownNote}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}` +
         `${leftToThePlatformNote(state, object)}${readById}`,
     });
@@ -10776,7 +10803,7 @@ export class ForgeExecutor {
       status: failedNode ? 'error' : 'stopped',
       progress: 100,
       message:
-        `${stopped}: ${pagedCounts(state.config, carry, held, outsideTheSampleSaid(state, object))}, ` +
+        `${stopped}: ${pagedCounts(state.config, object, carry, held, outsideTheSampleSaid(state, object))}, ` +
         `${notSent} not sent` +
         `${ownSentNote(carry.sentOnTheirOwn)}${flagsNotKeptOfCarry(carry)}` +
         `${picklistChangesNote(carry.picklists.list())}` +
@@ -17857,10 +17884,20 @@ export class ForgeExecutor {
       this.noteLeftEmptyByFilter(state, objectApiName, field, recordId);
     }
     for (const sourceId of written.withTheirRecord ?? []) keepWithTheirRecord(state, sourceId);
-    if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
+    // What the platform wrote with the run's records is among what the run
+    // linked, never among what the target held before it: a contact's direct
+    // relation and the relation of an event's who, listed with them, read as
+    // records the target had refused, of a run that sent it none.
+    const byThePlatform = Math.min(
+      written.linkedExistingCount,
+      written.writtenByThePlatformCount ?? 0,
+    );
+    countWrittenByThePlatform(state, objectApiName, byThePlatform);
+    const linkedHeld = written.linkedExistingCount - byThePlatform;
+    if (linkedHeld > 0 || written.unidentifiedExistingCount > 0) {
       state.existingRecords.push({
         objectApiName,
-        linked: written.linkedExistingCount,
+        linked: linkedHeld,
         ...(written.linkedToCreatedCount ? { linkedToCreated: written.linkedToCreatedCount } : {}),
         unidentified: written.unidentifiedExistingCount,
       });
@@ -19770,6 +19807,7 @@ export class ForgeExecutor {
         page.updated += nodeUpdated;
         page.linked += nodeLinked;
         page.linkedToCreated += writeResult.linkedToCreatedCount ?? 0;
+        page.linkedByThePlatform += writeResult.writtenByThePlatformCount ?? 0;
         page.failed += nodeFailure;
         page.alreadyExists += writeResult.alreadyExistsCount;
         page.unidentified += nodeUnidentified;
@@ -19800,7 +19838,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'running',
           progress: 0,
-          message: `${node.objectApiName}, page ${page.pages}: ${pagedCounts(config, page, held)}`,
+          message: `${node.objectApiName}, page ${page.pages}: ${pagedCounts(config, node.objectApiName, page, held)}`,
         });
         return;
       }
@@ -19837,7 +19875,10 @@ export class ForgeExecutor {
       // The rows the target already held are named apart: linked is neither
       // written nor failed, and a duplicate the run could not identify is a
       // failure whose children lose their lookup — worth saying on its own.
-      const linked = linkedNote(nodeLinked, writeResult.linkedToCreatedCount ?? 0);
+      const linked = linkedNote(nodeLinked, writeResult.linkedToCreatedCount ?? 0, {
+        objectApiName: node.objectApiName,
+        rows: writeResult.writtenByThePlatformCount ?? 0,
+      });
       const updated = nodeUpdated > 0 ? `, ${nodeUpdated} updated through their external id` : '';
       const unidentified =
         nodeUnidentified > 0

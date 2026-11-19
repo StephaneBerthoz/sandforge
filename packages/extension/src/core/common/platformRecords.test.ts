@@ -1910,4 +1910,12 @@ describe('the contact role the platform writes with an opportunity', () => {
     expect(writtenWithWords('OpportunityContactRole')).toBe('their opportunity, for its contact');
     expect(writtenWithWords('OpportunityTeamMember')).toBe('their opportunity, for its owner');
   });
+
+  it("says a task's or an event's relation written by the platform with its activity, not with an opportunity", () => {
+    // Fallen through to the team's words, a line would have said an event's
+    // relation was written with its opportunity, for its owner.
+    expect(writtenWithWords('TaskRelation')).toBe('their task');
+    expect(writtenWithWords('EventRelation')).toBe('their event');
+    expect(writtenWithWords('AccountContactRelation')).toBe('their contact');
+  });
 });

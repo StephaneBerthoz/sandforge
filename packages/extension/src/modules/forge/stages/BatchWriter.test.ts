@@ -1210,6 +1210,44 @@ describe('BatchWriter — relations the platform creates', () => {
 
     expect(result.linkedExistingCount).toBe(2);
     expect(result.withTheirRecord).toEqual(['07kSRC1']);
+    // Of the two linked, the one the platform wrote with the run's contact:
+    // the other was in the target before the run.
+    expect(result.writtenByThePlatformCount).toBe(1);
+  });
+
+  it('counts apart, of the relations it links, those the platform wrote with an event the run created, not those of an event the target held', async () => {
+    // Said "linked to records already in the target", a relation the
+    // platform wrote for the who of an event the run had just inserted read
+    // as one the target held before the run.
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '0REPLATFORM1', EventId: '00UE1', RelationId: '003WHO' },
+      { Id: '0REHELD2', EventId: '00UE2', RelationId: '003WHO' },
+    ]);
+    const payloads = [
+      { EventId: '00UE1', RelationId: '003WHO', IsParent: true },
+      { EventId: '00UE2', RelationId: '003WHO', IsParent: true },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('00USRC1', '00UE1', 'Event');
+    remapper.addExisting('00USRC2', '00UE2', 'Event');
+    const input = makeInput([], {
+      node: makeNode('EventRelation', 2),
+      records: payloads,
+      cleanedRecords: payloads.map((cleaned, i) => ({
+        source: { Id: `0RESRC${i + 1}`, EventId: `00USRC${i + 1}` },
+        cleaned,
+        nullifiedFks: [],
+      })),
+      remapper,
+    });
+
+    const result = await new BatchWriter({
+      insertRecords: vi.fn<InsertImpl>(),
+      queryRecords,
+    }).writeNode(input);
+
+    expect(result.linkedExistingCount).toBe(2);
+    expect(result.writtenByThePlatformCount).toBe(1);
   });
 
   it('says the direct relations of the contacts an earlier part of the run created go with them too, as those of this part', async () => {

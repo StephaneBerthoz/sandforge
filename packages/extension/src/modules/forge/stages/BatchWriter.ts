@@ -459,6 +459,13 @@ export interface BatchWriteResult {
    * it keeps unique repeated in the source. Absent when there were none.
    */
   linkedToCreatedCount?: number;
+  /**
+   * Of those, the rows linked to what the platform wrote itself with a record
+   * the run created, in this part or an earlier one: the direct relation of a
+   * contact to its account, the relation of a task's or an event's who. None
+   * of them was in the target before the run. Absent when there were none.
+   */
+  writtenByThePlatformCount?: number;
   /** Records that failed (including API-truncated results). */
   failureCount: number;
   /**
@@ -1096,6 +1103,8 @@ export class BatchWriter {
     // wrote for a task's or an event's who as it took the activity, and a
     // selling model option of a product the target already held.
     const direct = await this.heldBeforeInsert(node.objectApiName, targetOrgId, input.records);
+    /** A task's or an event's relation: the lookup that names its activity. */
+    const activityOf = ACTIVITY_OF_RELATION[node.objectApiName];
     for (const [index, id] of direct) {
       const source = input.cleanedRecords[index]?.source;
       const oldId = source?.['Id'];
@@ -1116,6 +1125,15 @@ export class BatchWriter {
         remapper.wasCreated(contact)
       ) {
         tally.withTheirRecord = [...(tally.withTheirRecord ?? []), oldId];
+      }
+      // Written by the platform with the run's contact, task or event: said
+      // so, not as a record the target held. Counted with those, the
+      // relation the platform wrote for the who of an event the run had just
+      // inserted was said "linked to records already in the target".
+      const withIt = node.objectApiName === ACCOUNT_CONTACT_RELATION ? 'ContactId' : activityOf;
+      const ofTheRun = withIt === undefined ? undefined : source?.[withIt];
+      if (typeof ofTheRun === 'string' && remapper.wasCreated(ofTheRun)) {
+        tally.writtenByThePlatformCount = (tally.writtenByThePlatformCount ?? 0) + 1;
       }
     }
     tally.linkedExistingCount += direct.size;

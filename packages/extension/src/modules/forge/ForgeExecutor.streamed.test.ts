@@ -2693,14 +2693,18 @@ describe('the relations of events read page by page', () => {
         : query(org, soql, onTruncated);
     const said: ForgeProgressEvent[] = [];
 
-    await orgs.executor.execute(graph, 'src', 'tgt', (e) => said.push(e), {
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => said.push(e), {
       stream: { pageSize: 1 },
     });
 
+    // Written by the platform with the events the run inserted, page by
+    // page: never said to be records the target held before the run.
     expect(said.filter((e) => e.objectName === 'EventRelation').at(-1)?.message).toBe(
-      'Completed EventRelation: 0 succeeded, 3 linked to records already in the target, 0 failed, ' +
+      'Completed EventRelation: 0 succeeded, 3 written by the platform with their event, 0 failed, ' +
         '3 linked without IsInvitee: the target does not let it be updated',
     );
+    expect(summary.writtenByThePlatform).toEqual([{ objectApiName: 'EventRelation', rows: 3 }]);
+    expect(summary.existingRecords).toEqual([]);
   });
 });
 
