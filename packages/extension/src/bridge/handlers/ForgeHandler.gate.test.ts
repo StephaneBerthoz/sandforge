@@ -34,6 +34,7 @@ import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 import { discoveryRequestSent } from '../../modules/forge/discoveryRequests.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
@@ -2320,6 +2321,9 @@ describe('forge:execute, the gate before the first write', () => {
       await execute();
 
       expect(refusal()).toContain('The run takes about 5 API requests');
+      // The rows the target refuses for a record lock go again, which no
+      // estimate made before the write counts: said, as a sync's refusal is.
+      expect(refusal()).toContain(`${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`);
       expect(calls).not.toContain('written');
     });
 

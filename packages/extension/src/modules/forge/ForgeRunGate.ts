@@ -106,6 +106,7 @@ import { NO_ASSIGN_RIGHT } from './AutomationMuteLease.js';
 import { AUTOMATION_READ_MOST, objectsTheRunWrites } from './TargetAutomationReader.js';
 import type { SampleRefusalCode } from './sample/sampleDrawing.js';
 import { noteStorageSaid, uncountedWritesOf } from './storageWritten.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 
 /** The volume past which the extension asks before a run writes (`sandforge.safety.confirmAboveRecords`). */
 export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
@@ -1730,7 +1731,10 @@ export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudg
     }),
     input.budget,
   );
-  const overBudget = apiBudgetRefusal(api, input.target);
+  // The writer sends again the rows the target refuses for a record lock
+  // (`BatchWriter`), which no estimate made before the write counts: said, as
+  // Sync's gate says it.
+  const overBudget = apiBudgetRefusal(api, input.target, LOCK_RESENDS_NOT_COUNTED);
   const stops: NonNullable<ForgeWriteBudget['stop']>[] = [];
   const checkpointStop = checkpointScopeStop(input.checkpoint);
   if (checkpointStop) stops.push(checkpointStop);

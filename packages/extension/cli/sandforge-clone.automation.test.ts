@@ -30,6 +30,7 @@ import {
   type BeforeRunTake,
 } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { CHECKPOINT_STOPPED_WORDS } from '../src/modules/forge/ForgeRunGate.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../src/core/engine/lockedRows.js';
 import { EMAIL_NOT_PERMITTED } from '../src/modules/forge/targetDeliverability.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import {
@@ -2059,14 +2060,16 @@ describe('sandforge-clone target automation', () => {
       expect(await run(argv('--skip-preflight', '--checkpoint-first'))).toBe(1);
 
       // Its two writes, the checkpoint's 68, and the 2 requests the command
-      // had sent the target before its gate, priced as sent.
+      // had sent the target before its gate, priced as sent. The rows the
+      // target refuses for a record lock go again, which no estimate counts:
+      // said, as a sync's refusal says it.
       expect(stderr).toBe(
         'refused (API_BUDGET_EXCEEDED): The run takes about 72 API requests (68 of them for the ' +
           'checkpoint taken first), and ' +
           'TGT has 50 of its 15000 daily requests left: it would stop part way through, its ' +
           'records refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to ' +
           'spare — the limit is counted over the last 24 hours — or write fewer records. ' +
-          'Nothing was written.\n',
+          `${LOCK_RESENDS_NOT_COUNTED} Nothing was written.\n`,
       );
       expect(port.take).not.toHaveBeenCalled();
       expect(orgs.TGT.written).toEqual([]);
@@ -2101,7 +2104,7 @@ describe('sandforge-clone target automation', () => {
           'its 15000 daily requests left: it ' +
           'would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED. Run it ' +
           'once the org has requests to spare — the limit is counted over the last 24 hours — or ' +
-          'write fewer records. Nothing was written.\n',
+          `write fewer records. ${LOCK_RESENDS_NOT_COUNTED} Nothing was written.\n`,
       );
       expect(orgs.TGT.written).toEqual([]);
     });

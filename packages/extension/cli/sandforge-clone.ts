@@ -414,6 +414,7 @@ import {
   type WholeOrgFilesCheck,
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../src/core/engine/lockedRows.js';
 import { writtenWithWords } from '../src/core/common/platformRecords.js';
 import {
   isExcludedFromCopy,
@@ -14187,7 +14188,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const checkpointRefused =
       checkpointFailed ??
       (gate.stop?.refusal !== undefined ? checkpointRefusedWords(gate.stop.refusal) : undefined);
-    const overBudget = apiBudgetRefusal(gate.api, args.target)?.replace(
+    // The rows the target refuses for a record lock go again, which no
+    // estimate made before the write counts: said, as the gate of a clone of
+    // the whole org and a sync say it.
+    const overBudget = apiBudgetRefusal(gate.api, args.target, LOCK_RESENDS_NOT_COUNTED)?.replace(
       / Nothing was written\.$/,
       '',
     );

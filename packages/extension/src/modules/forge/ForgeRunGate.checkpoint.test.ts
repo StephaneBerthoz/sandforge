@@ -14,6 +14,7 @@ import {
   writePlanOf,
 } from './ForgeRunGate.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 
 /** `n` rows of an object, as the run holds them. */
 const rows = (n: number): Record<string, unknown>[] =>
@@ -148,7 +149,9 @@ describe('forgeWriteBudgetOf', () => {
     expect(over.stop?.message).toMatch(
       /^The run takes about 73 API requests \(68 of them for the checkpoint taken first, 2 to read back the record types the target gave\), and DEV-SB has 72 of its 500 daily requests left/,
     );
-    expect(over.stop?.message).toMatch(/Nothing was written\.$/);
+    // The writer sends again the rows the target refuses for a record lock,
+    // which no estimate made before the write counts: said, as Sync's is.
+    expect(over.stop?.message).toContain(`${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`);
   });
 
   it('judges "near" on the sum, and the question says the parts and the checkpoint', () => {
