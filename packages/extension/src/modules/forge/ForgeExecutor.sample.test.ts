@@ -360,6 +360,8 @@ function sampleRun(
     dryRun?: boolean;
     writeWindow?: number;
     gate?: ForgeWriteBoundary[];
+    /** The most records the drawing holds at once, in place of a million. */
+    maxRows?: number;
   } = {},
 ): ExecuteOptions {
   return {
@@ -379,6 +381,7 @@ function sampleRun(
         keepAt,
         fingerprint: 'setup1',
         ...(extra.plan ? { plan: extra.plan } : {}),
+        ...(extra.maxRows !== undefined ? { maxRows: extra.maxRows } : {}),
       },
     },
   };
@@ -685,6 +688,41 @@ describe('a clone of the whole org that copies a sample of it', () => {
     expect(byRecords?.sample).toEqual({
       limitedBy: 'maxTotal',
       heaviest: expect.arrayContaining(['Account']),
+    });
+  }, 60_000);
+
+  it('refuses, writing nothing and keeping no plan, a sample whose drawing reads more records than it holds at once, and says how many', async () => {
+    const keepAt = join(plansDir(), 'too-large');
+    const { executor, deps } = orgs(sourceOf(150));
+    const run = executor.execute(
+      graphOf(150, 150),
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(keepAt, budgetOf(1_000), { maxRows: 40, dryRun: true }),
+    );
+    const refused = await run.then(
+      () => undefined,
+      (error: unknown) => error as SampleRefusedError & { sample?: Record<string, unknown> },
+    );
+
+    expect(refused).toBeInstanceOf(SampleRefusedError);
+    expect(refused?.code).toBe('SAMPLE_TOO_LARGE');
+    expect(refused?.message).toMatch(/^Drawing the sample read \d+ records, more than the 40 /);
+    expect(refused?.message).toContain('Nothing was written.');
+    // Fewer roots read fewer records under them: the ways out of the closure,
+    // and those of the roots.
+    expect(refused?.message).toContain('--fit-window');
+    expect(refused?.message).toContain('--fit-where');
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+    expect(deps.bulkWriteRecords).not.toHaveBeenCalled();
+    await expect(SamplePlan.open(keepAt)).rejects.toThrow();
+    // What the page says it in: the records read, and the most it holds.
+    const read = Number(/read (\d+) records/.exec(refused?.message ?? '')?.[1]);
+    expect(read).toBeGreaterThan(40);
+    expect(sampleGateErrorOf(refused, 'draw')?.stop).toEqual({
+      code: 'SAMPLE_TOO_LARGE',
+      sample: { rows: read, most: 40 },
     });
   }, 60_000);
 

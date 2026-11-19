@@ -3273,6 +3273,21 @@ class SampleCannotFitError extends SampleRefusedError {
   }
 }
 
+/**
+ * A sample whose drawing read more records than it holds at once, refused
+ * with what the gate's stop says of it (`ForgeRunGateStop.sample`): the
+ * records read and the most it holds, which the page says. Read by name by
+ * the gate (`sampleGateErrorOf`), as any refusal of a sample is.
+ */
+class SampleTooLargeError extends SampleRefusedError {
+  constructor(
+    message: string,
+    readonly sample: { rows: number; most: number },
+  ) {
+    super('SAMPLE_TOO_LARGE', message);
+  }
+}
+
 /** The rows of reference data its report details one by one; the others are named in one more line. */
 const REFERENCE_DATA_DETAILED = 3;
 
@@ -7838,10 +7853,10 @@ export class ForgeExecutor {
     } catch (err) {
       if (err instanceof SampleTooLarge) {
         // Fewer roots read fewer records under them: a window, or filters on them.
-        throw new SampleRefusedError(
-          'SAMPLE_TOO_LARGE',
+        throw new SampleTooLargeError(
           `${err.message} Or draw among fewer roots: a window of dates (--fit-window) or a ` +
             'filter on the roots of the large objects (--fit-where).',
+          { rows: err.rows, most: err.most },
         );
       }
       if (err instanceof SampleCancelled || this.isAborted) {
