@@ -859,7 +859,12 @@ each after the cancel checkpoint; past that, its rows are failed, not written.
 A row refused for a record the target could not lock (`UNABLE_TO_LOCK_ROW`)
 was not written either, a call committing each of its rows on its own: it goes
 again on the same waits, alone, three times at most, before the object's next
-call. A call whose answer never came back — a timeout, a connection reset once
+call. A trigger of the target whose own update met such a lock refuses the row
+under the trigger's code, the lock in its message
+(`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY … first error: UNABLE_TO_LOCK_ROW`): the
+trigger threw, so none of the rows it ran for was written, and the row goes
+again the same way; so does a record a removal of the run's records deletes.
+A call whose answer never came back — a timeout, a connection reset once
 the request was out, the edge saying the org failed it (502, 504) — may have
 written any of its rows: the object stops there, as at any call that throws,
 and the call is never sent again, since the rows the target wrote would be
