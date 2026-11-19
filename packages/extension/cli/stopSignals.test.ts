@@ -1,6 +1,13 @@
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   onStopSignal,
+  RELAY_WINDOW_MS,
   STOP_CHANNEL_VARIABLE,
   STOP_MESSAGE,
   STOP_SIGNALS,
@@ -21,13 +28,48 @@ describe('the signals that stop a run', () => {
   });
 
   it('hears one stop, then lets every signal go, so a second ends the process', () => {
-    const before = STOP_SIGNALS.map((signal) => process.listenerCount(signal));
+    vi.useFakeTimers();
+    try {
+      const before = STOP_SIGNALS.map((signal) => process.listenerCount(signal));
+      const stop = vi.fn();
+      onStopSignal(stop);
+
+      process.emit('SIGTERM');
+
+      expect(stop).toHaveBeenCalledTimes(1);
+      // Every other signal at once; the same one once its relay has had time to come.
+      expect(STOP_SIGNALS.map((signal) => process.listenerCount(signal))).toEqual(
+        STOP_SIGNALS.map((signal, i) => (before[i] ?? 0) + (signal === 'SIGTERM' ? 1 : 0)),
+      );
+      vi.advanceTimersByTime(RELAY_WINDOW_MS);
+      expect(STOP_SIGNALS.map((signal) => process.listenerCount(signal))).toEqual(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('takes the same signal again at once for its relay, not for a second stop: the one after ends the process', () => {
+    // `npx` (npm exec) sends the script each SIGINT and SIGTERM it gets, and
+    // a Ctrl-C reaches both: the script heard two, the second ended it at
+    // once, and the summary of what it wrote was never printed.
+    const before = process.listenerCount('SIGINT');
     const stop = vi.fn();
     onStopSignal(stop);
 
-    process.emit('SIGTERM');
+    process.emit('SIGINT');
+    process.emit('SIGINT');
 
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(process.listenerCount('SIGINT')).toBe(before);
+  });
+
+  it('lets the relay go with the rest once the run is over', () => {
+    const before = STOP_SIGNALS.map((signal) => process.listenerCount(signal));
+    const release = onStopSignal(vi.fn());
+
+    process.emit('SIGHUP');
+    release();
+
     expect(STOP_SIGNALS.map((signal) => process.listenerCount(signal))).toEqual(before);
   });
 
@@ -105,4 +147,79 @@ describe('the IPC channel a parent stops a run through', () => {
     expect(process.listenerCount('message')).toBe(before);
     release();
   });
+});
+
+// Windows has no signals: a process asked to SIGINT ends at once.
+describe.skipIf(process.platform === 'win32')('a run of a process of its own', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * A script that stops on a signal as a command does, and prints its
+   * summary `summaryAfter` ms later; sent SIGINT at each of `at` (ms after it
+   * is ready), as a terminal and the npm that started it send theirs.
+   */
+  async function interrupted(
+    summaryAfter: number,
+    at: readonly number[],
+  ): Promise<{ code: number | null; signal: NodeJS.Signals | null; out: string }> {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-stop-'));
+    dirs.push(dir);
+    const file = join(dir, 'run.mts');
+    const module = pathToFileURL(join(__dirname, 'stopSignals.ts')).href;
+    writeFileSync(
+      file,
+      [
+        `import { onStopSignal, stopExitCode } from ${JSON.stringify(module)};`,
+        'const release = onStopSignal((signal) => {',
+        "  process.stdout.write('stopping on ' + signal + '\\n');",
+        '  setTimeout(() => {',
+        "    process.stdout.write('summary printed\\n');",
+        '    release();',
+        '    process.exit(stopExitCode(signal));',
+        `  }, ${summaryAfter});`,
+        '});',
+        "process.stdout.write('ready\\n');",
+        'setInterval(() => undefined, 1_000);',
+      ].join('\n'),
+    );
+    // Its loader in the script's own process: tsx's command would stand
+    // between, and relay each signal as npm does.
+    const tsx = pathToFileURL(
+      createRequire(join(__dirname, 'stopSignals.ts')).resolve('tsx/esm'),
+    ).href;
+    const child = spawn(process.execPath, ['--import', tsx, file], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    const ready = new Promise<void>((resolve) => {
+      child.stdout.on('data', (chunk: Buffer) => {
+        out += chunk.toString('utf8');
+        if (out.includes('ready\n')) resolve();
+      });
+    });
+    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+      child.on('close', (code, signal) => resolve({ code, signal })),
+    );
+    await ready;
+    for (const ms of at) setTimeout(() => child.kill('SIGINT'), ms);
+    return { ...(await closed), out };
+  }
+
+  it('says what it wrote when the npm that started it relays the Ctrl-C right after the terminal’s', async () => {
+    const ended = await interrupted(400, [0, 20]);
+
+    expect(ended.out).toContain('stopping on SIGINT\nsummary printed\n');
+    expect(ended).toMatchObject({ code: 130, signal: null });
+  }, 20_000);
+
+  it('ends at once on a second Ctrl-C past the time a relay takes', async () => {
+    const ended = await interrupted(10_000, [0, RELAY_WINDOW_MS + 300]);
+
+    expect(ended.out).toContain('stopping on SIGINT\n');
+    expect(ended.out).not.toContain('summary printed');
+    expect(ended).toMatchObject({ code: null, signal: 'SIGINT' });
+  }, 20_000);
 });
