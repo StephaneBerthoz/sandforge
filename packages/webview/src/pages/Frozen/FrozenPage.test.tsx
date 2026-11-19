@@ -1136,6 +1136,7 @@ describe('FrozenPage', () => {
     // A load without Reload purges nothing, and says nothing of a purge.
     expect(screen.queryByTestId('frozen-report-purge')).toBeNull();
     expect(screen.queryByTestId('frozen-report-written-without-fields')).toBeNull();
+    expect(screen.queryByTestId('frozen-report-sent-again-for-a-lock')).toBeNull();
   });
 
   it('names each field the target refused records on that went in written again, what refused it, and how', async () => {
@@ -1225,6 +1226,69 @@ describe('FrozenPage', () => {
         '1',
       ],
     ]);
+  });
+
+  it('says per object the records sent again for a record lock, and what became of them', async () => {
+    // The writer sent them again on their own and said so in the log alone:
+    // a load that met the lock and wrote every record read as one that
+    // never met it, as Sync's results and Autopilot's nodes say it.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Account',
+            fromFiles: 2,
+            inserted: 2,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [],
+          },
+          {
+            objectApiName: 'Contact',
+            fromFiles: 40,
+            inserted: 38,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [
+              {
+                objectApiName: 'Contact',
+                referenceId: 'Contact-000040',
+                errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record'],
+              },
+            ],
+            sentAgainForALock: { rows: 12, written: 10, stillLocked: 1 },
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    await loadTabShown();
+
+    const section = screen.getByTestId('frozen-report-sent-again-for-a-lock');
+    expect(section.textContent).toContain(en.frozen.report.sentAgainForALock);
+    expect(screen.queryByTestId('frozen-report-sentAgainForALock-Account')).toBeNull();
+    expect(screen.getByTestId('frozen-report-sentAgainForALock-Contact').textContent).toBe(
+      '12 records the target org refused because it could not lock a record their write ' +
+        'needed (UNABLE_TO_LOCK_ROW) went again on their own, up to 3 times, waiting longer ' +
+        'each time: 10 written. 1 still refused for the lock, among the refusals. 1 refused ' +
+        'for another reason, among the refusals.',
+    );
+    expect(within(section).getByText('Contact')).toBeDefined();
   });
 
   it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', async () => {

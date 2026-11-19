@@ -30,7 +30,7 @@ import type {
   RunDeliverability,
 } from './forge.types.js';
 import type { SyncValidationRule } from './sync.types.js';
-import type { RecordTypeGiven } from './common.types.js';
+import type { RecordTypeGiven, SentAgainForALock } from './common.types.js';
 import type { RunCheckpointEstimate, RunCheckpointInfo } from './checkpoint.types.js';
 
 /**
@@ -621,6 +621,13 @@ export interface FrozenPerObjectLoadResult {
    * than sent beside them. Absent when there was none.
    */
   writtenByThePlatform?: number;
+  /**
+   * Of the records it sent, those the target refused because it could not
+   * lock a record their write needed, sent again on their own, and what
+   * became of them; those still refused are among `failed`. Absent when none
+   * met the lock, and from reports written before they were said.
+   */
+  sentAgainForALock?: SentAgainForALock;
 }
 
 /** Final load report — every exclusion/adjustment is listed. */

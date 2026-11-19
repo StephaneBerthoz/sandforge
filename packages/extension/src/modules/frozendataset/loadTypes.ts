@@ -16,6 +16,7 @@ import type {
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
   RecordTypeGiven,
+  SentAgainForALock,
 } from '@sandforge/shared';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
@@ -459,6 +460,13 @@ export interface PerObjectLoadResult {
    * there was none.
    */
   writtenByThePlatform?: number;
+  /**
+   * Of the records it sent, those the target refused because it could not
+   * lock a record their write needed, which the writer sent again on their
+   * own (`OperationOutcome.lockResends`), and what became of each by its last
+   * answer. Absent when none met the lock.
+   */
+  sentAgainForALock?: SentAgainForALock;
 }
 
 /** Purge accounting for reload mode (children before parents). */

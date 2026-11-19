@@ -1909,6 +1909,43 @@ describe('messageLines', () => {
     );
   });
 
+  it('says under an object the records sent again for a record lock, and what became of them', () => {
+    // The writer sent them again on their own, and said so in the log alone:
+    // a load that met the lock and wrote every record read as one that never met it.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed-with-errors',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [
+            {
+              objectApiName: 'Contact',
+              fromFiles: 40,
+              inserted: 38,
+              reused: 0,
+              skippedDuplicates: [],
+              failed: [{ errors: ['UNABLE_TO_LOCK_ROW: unable to obtain exclusive access'] }],
+              sentAgainForALock: { rows: 12, written: 10, stillLocked: 1 },
+            },
+          ],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+        },
+      },
+    });
+
+    expect(lines.slice(1, 4)).toEqual([
+      '  Contact: 38 inserted, 0 reused, 0 duplicate(s), 1 failed of 40',
+      '      first refusal: UNABLE_TO_LOCK_ROW: unable to obtain exclusive access',
+      '      12 record(s) refused because the target could not lock a record their write ' +
+        'needed (UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: ' +
+        '10 written, 1 still refused for the lock, 1 refused for another reason',
+    ]);
+  });
+
   it('names each field the target refused records on that went in written again, with what refused it', () => {
     // The Load tab said them, and the command said none: a record in the
     // target short of a value the dataset held read as one written whole.

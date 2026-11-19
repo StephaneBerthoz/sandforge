@@ -77,6 +77,7 @@ import type {
   RunCheckpointInfo,
   RunCheckpointRequest,
   RunCheckpointTaken,
+  SentAgainForALock,
   StillRunning,
 } from '@sandforge/shared';
 import {
@@ -150,6 +151,7 @@ import {
 import type { ReplayFolder } from '../src/modules/checkpoint/replay/replayStore.js';
 import { loadRecordsInfo, loadToRemove } from '../src/modules/frozendataset/loadRecords.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
+import { lockedRowsLine } from '../src/core/engine/lockedRows.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { confirm, typed } from './prompt.js';
@@ -1656,6 +1658,7 @@ export function messageLines(
           writtenByThePlatform?: number;
           skippedDuplicates: unknown[];
           failed: Array<{ errors?: string[]; error?: string }>;
+          sentAgainForALock?: SentAgainForALock;
           writtenWithoutFields?: {
             rows: number;
             fields: Array<{
@@ -1719,6 +1722,20 @@ export function messageLines(
         );
         const first = o.failed[0];
         if (first) lines.push(`      first refusal: ${first.errors?.[0] ?? first.error ?? '?'}`);
+        // Sent again after the target could not lock a record, as an
+        // Autopilot run's line says them: those it still refused are among
+        // the failed, their refusal saying how many times they went.
+        const again = o.sentAgainForALock;
+        const locked =
+          again &&
+          lockedRowsLine('record(s)', {
+            refused: again.rows,
+            sentAgain: again.rows,
+            written: again.written,
+            stillLocked: again.stillLocked,
+            notSentAgain: 0,
+          });
+        if (locked) lines.push(`      ${locked}`);
       }
       // Never sent: no load could write them, or this dataset cannot say
       // which of them the platform writes itself.

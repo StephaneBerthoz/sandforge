@@ -56,6 +56,7 @@ import {
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RecordTypesGivenSection, stillRanOf } from '../shared/RecordTypeGivenLine';
+import { SentAgainForALockLine } from '../shared/SentAgainForALockLine';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { runCheckpointOf } from '../../utils/runCheckpoint';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -610,6 +611,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       reason: f.reason,
       rows: f.rows,
     })),
+  );
+
+  // The objects whose records the target refused for a lock went again.
+  const lockSentObjects = (loadReport?.perObject ?? []).filter(
+    (o) => (o.sentAgainForALock?.rows ?? 0) > 0,
   );
 
   // What a reload purged of the loads before it, what it left in place, and
@@ -1615,6 +1621,27 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     data={withoutFieldRows}
                     keyExtractor={(row) => row.key}
                   />
+                </div>
+              )}
+
+              {/* Per object, the records sent again once the target could not lock a record their
+                  write needed, and what became of them: the writer's log alone said it. */}
+              {lockSentObjects.length > 0 && (
+                <div data-testid="frozen-report-sent-again-for-a-lock">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.sentAgainForALock')}
+                  </span>
+                  <ul className="flex flex-col gap-0.5">
+                    {lockSentObjects.map((o) => (
+                      <li key={o.objectApiName} className="text-[11px] text-text-secondary">
+                        <span className="font-medium text-text-primary">{o.objectApiName}</span>
+                        <SentAgainForALockLine
+                          entry={o.sentAgainForALock}
+                          testId={`frozen-report-sentAgainForALock-${o.objectApiName}`}
+                        />
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

@@ -1006,3 +1006,91 @@ describe('FrozenDatasetLoader — a record the target refused on fields it named
     ]);
   });
 });
+
+describe('FrozenDatasetLoader — the records the target refused for a record lock', () => {
+  it('says per object the records its writer sent again for a lock, each judged by its last answer', async () => {
+    // The writer sent them again on their own (`BulkDataWriter.locksAgain`)
+    // and said it in the log alone: a load that met the lock and wrote every
+    // record read as one that never met it.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: [
+            { referenceId: 'Account-000001', fields: { Name: 'Anon One', Tier__c: 'Gold' } },
+            { referenceId: 'Account-000002', fields: { Name: 'Anon Two' } },
+            { referenceId: 'Account-000003', fields: { Name: 'Anon Three' } },
+            { referenceId: 'Account-000004', fields: { Name: 'Anon Four' } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    // Each first send meets the lock but the fourth account's; the third
+    // meets it every time. Sent again, the first is refused on its tier, and
+    // goes in once the load writes it without it.
+    const sends = new Map<string, number>();
+    let counter = 0;
+    const sobject = (objectApiName: string) => ({
+      create: async (rows: Array<Record<string, unknown>>) =>
+        rows.map((row) => {
+          const name = String(row.Name);
+          const n = (sends.get(name) ?? 0) + 1;
+          sends.set(name, n);
+          if (name === 'Anon Three' || (n === 1 && name !== 'Anon Four')) {
+            return {
+              success: false,
+              errors: [
+                {
+                  statusCode: 'UNABLE_TO_LOCK_ROW',
+                  message: 'unable to obtain exclusive access to this record',
+                  fields: [],
+                },
+              ],
+            };
+          }
+          if (typeof row.Tier__c === 'string') {
+            return { success: false, errors: [picklistRefusal(row.Tier__c)] };
+          }
+          return {
+            success: true,
+            id: `${PREFIX[objectApiName]}${String(++counter).padStart(12, '0')}`,
+          };
+        }),
+    });
+    const writer = createBulkDmlWriter(
+      new BulkDataWriter({
+        connection: { sobject } as unknown as Connection,
+        bulkExecutor: new BulkApiExecutor(200),
+        bulkManager: new BulkApiManager(),
+        retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+        onProgress: () => undefined,
+        log: () => undefined,
+        wait: async () => undefined,
+      }),
+    );
+    const deps = makeDeps({ dataset, writer });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    // The third went four times, the lock holding it each time.
+    expect(sends.get('Anon Three')).toBe(4);
+    expect(report.perObject.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      inserted: 3,
+      failed: [expect.objectContaining({ referenceId: 'Account-000003' })],
+      writtenWithoutFields: { rows: 1 },
+      sentAgainForALock: { rows: 3, written: 2, stillLocked: 1 },
+    });
+  });
+
+  it('says nothing of a lock no record met', async () => {
+    const dataset = accounts();
+    const deps = makeDeps({ dataset, writer: targetWriter([], () => undefined) });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    for (const object of report.perObject) expect(object).not.toHaveProperty('sentAgainForALock');
+  });
+});

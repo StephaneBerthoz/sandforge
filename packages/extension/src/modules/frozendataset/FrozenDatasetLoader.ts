@@ -71,6 +71,7 @@ import type {
   RecordTypeGiven,
   RecordTypeGivenBasis,
   RecordTypeNamed,
+  SentAgainForALock,
   SyncValidationRule,
   WithoutRecordTypeWhy,
 } from '@sandforge/shared';
@@ -79,6 +80,7 @@ import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { refusedForALock } from '../../core/engine/lockedRows.js';
 import {
   parseRecordTypeInfos,
   type RecordTypeAvailability,
@@ -1110,6 +1112,19 @@ function mergeResults(
   const writtenWithoutFields = [first.writtenWithoutFields, second.writtenWithoutFields].reduce<
     FrozenWrittenWithoutFields | undefined
   >((sum, written) => (written ? addWrittenWithoutFields(sum, written) : sum), undefined);
+  const sentAgainForALock = [first.sentAgainForALock, second.sentAgainForALock].reduce<
+    SentAgainForALock | undefined
+  >(
+    (sum, sent) =>
+      sent
+        ? {
+            rows: (sum?.rows ?? 0) + sent.rows,
+            written: (sum?.written ?? 0) + sent.written,
+            stillLocked: (sum?.stillLocked ?? 0) + sent.stillLocked,
+          }
+        : sum,
+    undefined,
+  );
   return {
     objectApiName: second.objectApiName,
     fromFiles: first.fromFiles + second.fromFiles,
@@ -1119,7 +1134,32 @@ function mergeResults(
     failed: [...first.failed, ...second.failed],
     ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
     ...(notInserted > 0 ? { notInserted } : {}),
+    ...(sentAgainForALock ? { sentAgainForALock } : {}),
   };
+}
+
+/**
+ * What became of the records of one object's insert the target refused
+ * because it could not lock a record their write needed, which the writer
+ * sent again on their own (`OperationOutcome.lockResends`): each by its last
+ * answer, the one a write of it again without a refused field gave when it
+ * went so. Undefined when none met the lock. The writer said them in the log
+ * alone, and a load that met the lock and wrote every record read as one
+ * that never met it.
+ *
+ * @param last - Each such record's last answer, by its key.
+ */
+function sentAgainForALockOf(
+  last: ReadonlyMap<string, OperationOutcome>,
+): SentAgainForALock | undefined {
+  if (last.size === 0) return undefined;
+  let written = 0;
+  let stillLocked = 0;
+  for (const outcome of last.values()) {
+    if (outcome.success) written++;
+    else if (refusedForALock(outcome.errors, outcome.errorDetails)) stillLocked++;
+  }
+  return { rows: last.size, written, stillLocked };
 }
 
 /**
@@ -2745,6 +2785,7 @@ export class FrozenDatasetLoader {
       const skippedDuplicates = counted?.skippedDuplicates ?? [];
       const failed = counted?.failed ?? [];
       const writtenWithoutFields = counted?.writtenWithoutFields;
+      const sentAgainForALock = counted?.sentAgainForALock;
       const notInserted =
         rows.length - linked - inserted - skippedDuplicates.length - failed.length;
       // The person accounts' contacts are none of the rows it sends: counted
@@ -2758,6 +2799,7 @@ export class FrozenDatasetLoader {
         failed,
         ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
         ...(notInserted > 0 ? { notInserted } : {}),
+        ...(sentAgainForALock ? { sentAgainForALock } : {}),
       });
       if (counted) perObject[at] = row;
       else perObject.push(row);
@@ -5147,8 +5189,11 @@ export class FrozenDatasetLoader {
       (offset, answered) => this.journalBatch(objectApiName, toInsert, offset, answered),
     );
     const refused: Array<SentAgain & { referenceId: string; errors: string[] }> = [];
+    /** The last answer of each record the writer sent again for a lock, by its key. */
+    const lockSent = new Map<string, OperationOutcome>();
     outcomes.forEach((outcome, i) => {
       const referenceId = toInsert[i].referenceId;
+      if (outcome.lockResends !== undefined) lockSent.set(referenceId, outcome);
       if (outcome.success && outcome.id) {
         inserted(referenceId, outcome.id, payloads[i]);
         return;
@@ -5168,6 +5213,12 @@ export class FrozenDatasetLoader {
     // as if written whole.
     const unanswered = toInsert.length - outcomes.length;
     if (unanswered > 0 && options.signal?.aborted) result.notInserted = unanswered;
+    /** Say what became of the records sent again for a lock, as their last answers stand. */
+    const sayLockSends = (): void => {
+      const sent = sentAgainForALockOf(lockSent);
+      if (sent) result.sentAgainForALock = sent;
+    };
+    sayLockSends();
     if (refused.length === 0) return result;
 
     /** Leave as the failures the target made them records kept from their second write, and why. */
@@ -5210,6 +5261,10 @@ export class FrozenDatasetLoader {
         );
         return;
       }
+      // Its last answer, when the lock held it in either write.
+      if (answer.lockResends !== undefined || lockSent.has(row.referenceId)) {
+        lockSent.set(row.referenceId, answer);
+      }
       if (answer.success && answer.id) {
         inserted(row.referenceId, answer.id, row.payload);
         result.writtenWithoutFields = addWrittenWithoutFields(result.writtenWithoutFields, {
@@ -5235,6 +5290,7 @@ export class FrozenDatasetLoader {
         result.failed.push({ objectApiName, referenceId: row.referenceId, errors });
       }
     });
+    sayLockSends();
     return result;
   }
 
