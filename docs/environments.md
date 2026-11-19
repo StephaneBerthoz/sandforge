@@ -343,9 +343,9 @@ One run of `claims`, a reload: its purge took back what the load before it creat
 
 ### References between resources
 
-A seed relation may draw its parents from the records another resource of the file created: `parents: { from: claims.Account }`, or `from: claims` beside `object: Account`, as `followers` does above. The other resource may be a seed, a forge or a frozen resource.
+A seed relation may draw its parents from the records another resource of the file created: `parents: { from: claims.Account }`, or `from: claims` beside `object: Account`, as `followers` does above. The other resource may be a seed, a forge, a frozen or a replay resource.
 
-- **By their ids, read from its run.** The ids are those the resource's last run created, read from what that run keeps: a seed's run file or its summary, a clone's summary -- the target ids its remap table gives the records it created, never those it linked to --, a Frozen load's mapping in its sas -- the records it created, never those it found and linked. They are handed to the seed as parents named by id, which it checks against the org before its first write: one deleted since refuses the run, in the seed's words.
+- **By their ids, read from its run.** The ids are those the resource's last run created, read from what that run keeps: a seed's run file or its summary, a clone's summary -- the target ids its remap table gives the records it created, never those it linked to --, a Frozen load's mapping in its sas -- the records it created, never those it found and linked --, a replay's mapping in the store of checkpoints, the same way. They are handed to the seed as parents named by id, which it checks against the org before its first write: one deleted since refuses the run, in the seed's words.
 - **At most 2,000.** A relation draws as many parents as an `existing` one may: a resource that created more of the object refuses the relation unless it gives `limit`, and its parents are then the first records created. `limit` goes with `from`; an `existing` relation keeps its own.
 - **An order, and no circle.** `from` makes the resource depend on the one it draws from, as `dependsOn` does: it runs after it, and is taken back before it. A name that is no resource of the file, the resource itself, and a circle of dependencies, through `dependsOn` or `from`, are refused; so is a seed resource drawn from for an object it does not write.
 - **Counted exactly once the other has run.** While the resource drawn from runs in the same apply, nobody knows its records: the plan counts the drawing resource at most as the file gives it, and says so -- `draws its parents from the Account records claims creates first`. Once it has run, its ids are known: the plan hands them to the dry run, counts exactly, and says how many -- `draws its parents from the 3 Account record(s) claims created` --, and the run is held to that count.
@@ -407,7 +407,7 @@ A mask resource masks records the org already holds -- a sandbox copied from pro
 - **The snapshot comes first.** Each run takes a snapshot of the records it masks, their masked fields as they are, before its first write, and writes nothing unless the snapshot holds every one of them. The snapshot is kept on this machine in the resource's own store, `dataops/<resource>/` beside the state, and the state keeps its id.
 - **Past what a snapshot holds, slices.** A snapshot holds `maxRecords` records of an object, 50,000 by default and 1,000,000 at most: a run whose object holds more is refused, and the plan blocks the resource in those words. `slices: true` masks it in slices of `maxRecords` records, consecutive by Id, each backed up just before it is masked and masked from that backup, as `sandforge dataops anonymize --slices` does; the state keeps the set's id, which `--restore` takes. `maxRequests` stops the run between two slices before it would send more, the resource left partial: its set stays open in the resource's store, a plan blocks the resource while it is, and `sandforge dataops anonymize --resume`, or `--abandon`, with that store and the resource's object and rules, ends it.
 - **Planned by its own dry run.** The plan dry-runs the masking (`anonymize --dry-run`) and says, per object, the records it would mask. A field the rules name that the org does not show the user blocks the resource, in the script's own words, and so does one the user may read and not edit, and an object the org would not count or read: a run is refused for it, and masks nothing. An object with no record holds nothing to mask, and blocks nothing. The dry run reads too what the org runs as the records are written over: something that fires blocks the resource unless `accept: { automation: true }` on it, handed to the script as `--accept-automation`; emails the org delivers block it unless the line gives `--accept-emails`; and the emails it counts join the day's email gate with the other resources'.
-- **Kept, drifted, replaced.** Applied with the same rules, it is kept while its condition selects as many records as it masked; once it selects others -- records copied in since, which hold their own values --, it is drifted, and `--replace` or `--replace-drifted` masks them all again. Changed rules replace it, and a replace masks again what its condition selects, the records it masked before a second time, taking nothing back first: the values they held before any masking stay only in the first run's snapshot.
+- **Kept, drifted, replaced.** Applied with the same rules, it is kept while its condition selects as many records as it masked; once it selects others -- records copied in since, which hold their own values --, it is drifted, and `--replace` or `--replace-drifted` masks them all again. The records the resources applied after it created since -- a replay's, a seed's -- are theirs, not drift: without a `where`, every one of its object; with one, those its condition selects, counted in the org by the ids their runs name, as `output` reads them. A run whose ids are no longer known leaves its records among those the condition may select or not, and the plan says so. Changed rules replace it, and a replace masks again what its condition selects, the records it masked before a second time, taking nothing back first: the values they held before any masking stay only in the first run's snapshot.
 - **Never unmasked.** `destroy`, and an apply of a file it left, delete its store, its snapshots with it -- the only copy of the values it wrote over -- and leave its records masked. Putting values back is your own act, before the destroy: `sandforge dataops anonymize --restore <snapshot>`, with the store the plan names. A file with a mask resource takes no `checkpoint.before`, exit `2`: that checkpoint would hold the values in clear, and `destroy --rewind` would write them back; for the same reason, `destroy --rewind` is refused while the state names a mask resource.
 - **Masking what a seed wrote.** A masking writes over the records it masks: those a seed or a forge resource of the same file wrote read as changed since, drifted, and their destroy keeps them unless `--include-changed`.
 
@@ -906,7 +906,7 @@ case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): state serial 4, written 2026-
     Contact  003000000000003AAA 003000000000004AAA 003000000000005AAA 003000000000006AAA 003000000000007AAA 003000000000008AAA
 ```
 
-`output` names, of each resource the state holds, the records its last run created, by object, in the order they were written: those a test suite runs against. It reaches no org, and runs no script: it reads the state and what each run kept on this machine -- a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas. `--org` finds the state as `state` does, by the alias it was applied by or by the Organization Id; two states under one alias -- an alias reused for a new scratch org -- are refused, both named, and the Organization Id says which.
+`output` names, of each resource the state holds, the records its last run created, by object, in the order they were written: those a test suite runs against. It reaches no org, and runs no script: it reads the state and what each run kept on this machine -- a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas, a replay's mapping in the store of checkpoints. `--org` finds the state as `state` does, by the alias it was applied by or by the Organization Id; two states under one alias -- an alias reused for a new scratch org -- are refused, both named, and the Organization Id says which.
 
 With `--json`, the answer alone goes to stdout, each resource under its name, its ids under their object, for a test script to read:
 
@@ -1579,6 +1579,29 @@ $ echo $?
 0
 ```
 
+`output` names what the apply created, for the testers' suite: the users set up, what the masking went through, and the records the replay created, read from its mapping in the store of checkpoints -- never the contacts it linked. The state of before the refresh is kept under the same alias, so `--org` names this one by its Organization Id:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env output --file ../uat/sandforge.yaml --org 00Dxx0000002AbCEAU
+uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU): state serial 7, written 2026-10-26T21:06:00.000Z
+  testers  users, applied, run 1
+    User  jane.qa@acme.com.uat 005000000000002AAA
+    User  paul.qa@acme.com.uat 005000000000003AAA
+    User  erp.integration@acme.com.uat 005000000000004AAA
+    a users resource creates no record of its own: it sets up users the org holds, named here
+  customers  mask, applied, run 1
+    Contact  4 masked
+    snapshot cli-dataops-anonymize-1793048670000-a1b2c3-snapshot, taken first
+    a masking creates no record: it writes over those the org holds that its condition selects
+  test-data  replay, applied, run 1
+    Account  001000000000004AAA 001000000000005AAA
+    Contact  003000000000006AAA 003000000000007AAA
+$ echo $?
+0
+```
+
 **Not yet proven on a refreshed sandbox.** The tests replay these sessions on an org in memory, and the users, the audits and the masking have run on scratch orgs; no refreshed sandbox has run them yet. Until one does, three points rest on what the code reads and what Salesforce documents: that a refresh puts each address under `.invalid`, and which users it leaves out; that a refreshed sandbox is reached on the host `<domain>--<sandbox>.sandbox.my.salesforce.com`, which the listing by My Domain reads; and that the state of before is told apart by that host and another Organization Id. So are what happens to the scheduled jobs across a refresh, the deliverability a refreshed sandbox wakes up with, and whether the `sf` CLI's login of before still reaches it.
 
 ## Audits and the handoff note
@@ -2073,8 +2096,6 @@ This version applies seed, forge, frozen, mask, users and replay resources, keep
 - **A password reset**: SandForge resets none. A tester asks for one with **Forgot your password?** on the sandbox's login page, once the address is confirmed.
 - **Users chosen otherwise than by username**: by profile, by role, or every other user frozen; a role given; a permission set license assigned; an address pointed at a team's mailbox.
 - **Fields scanned for endpoints**: the audit reads the Custom Metadata and Custom Settings fields `endpoints.fields` names, and no other.
-- **A masking with a `where` told from what a replay creates after it**: a mask resource whose condition selects records a replay of the same file creates is said drifted on the next plan; without a `where`, the records a later resource created are not its own, and it is kept.
-- **The records a replay created, by `output`**: they are kept by `sandforge checkpoint`, which `output` does not read; it names the resource, says why, and exits `3`.
 - **The state of before a refresh forgotten**: it stays set aside until you delete its folder.
 - **A refreshed sandbox**: the `.invalid` suffix, the listing by My Domain and the state told after a refresh are not yet proven on a refreshed sandbox ([After a sandbox refresh](#after-a-sandbox-refresh)).
 

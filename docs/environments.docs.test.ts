@@ -1816,6 +1816,8 @@ describe('docs/environments.md', () => {
       'This version applies seed, forge, frozen, mask, users and replay resources',
     );
     expect(later).not.toContain('Masking');
+    // What a replay created is read back, by output and by a masking's plan: no longer not yet.
+    expect(later).not.toMatch(/replay created|what a replay creates/);
     // A plan kept and applied, and what an apply created: no longer not yet.
     expect(commandsRead()).toContain('output');
     expect(flagsOf().get('plan')?.has('--out')).toBe(true);
@@ -2249,6 +2251,16 @@ describe('the frozen resource and the references between resources, on the page'
       ],
       [
         REFERENCES,
+        "a replay's mapping, kept with the replays in the\n * environment's store of checkpoints",
+        "a replay's mapping in the store of checkpoints, the same way",
+      ],
+      [
+        FILE,
+        'a seed, a forge, a frozen or a replay resource created',
+        'The other resource may be a seed, a forge, a frozen or a replay resource.',
+      ],
+      [
+        REFERENCES,
         "more than the ${most} a relation's parents hold: give the",
         'refuses the relation unless it gives `limit`',
       ],
@@ -2336,6 +2348,16 @@ describe('the mask resource, on the page', () => {
         MASK_KIND,
         'its condition selects other records than it masked',
         'once it selects others -- records copied in since, which hold their own values --, it is drifted',
+      ],
+      [
+        MASK_KIND,
+        'WHERE (${where}) AND Id IN (${list})',
+        'with one, those its condition selects, counted in the org by the ids their runs name',
+      ],
+      [
+        MASK_KIND,
+        "whose ids could not be counted under its condition'",
+        'A run whose ids are no longer known leaves its records among those the condition may select or not',
       ],
       [
         MASK_KIND,
@@ -2500,6 +2522,11 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
         REFERENCES,
         'export async function createdByRun(',
         "a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas",
+      ],
+      [
+        REFERENCES,
+        'case REPLAY_SCRIPT:\n      return replayCreated(run, where, deps);',
+        "a replay's mapping in the store of checkpoints",
       ],
       [OUTPUT, "code: 'TWO_STATES',", 'two states under one alias'],
       [
