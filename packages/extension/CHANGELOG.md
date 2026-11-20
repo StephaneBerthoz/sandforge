@@ -5,6 +5,15 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.84.1] - 2026-11-20
+
+SandForge no longer opens as every window starts: a click on its icon opens Home, and an update to a new version opens it on What's New.
+
+### Changed
+
+- **SandForge**: a click on its icon opens Home beside the side panel; a window starts with nothing of SandForge open, as before 1.84.0.
+- **SandForge**: the first window after an update to a new minor version opens the side panel and Home on What's New; Show What's New turns it off, and the Open on startup setting is gone.
+
 ## [1.84.0] - 2026-11-19
 
 SandForge opens on Home; the command line deploys from a comparison; gates count what your last runs wrote and sent; rewinds and removals take the duplicate record sets your org's rules made.
