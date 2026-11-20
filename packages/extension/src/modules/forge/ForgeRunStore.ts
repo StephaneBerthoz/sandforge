@@ -36,9 +36,16 @@ export interface RunFile {
   close(): void;
 }
 
+/**
+ * What a journal and the files beside it are made with: their owner's alone,
+ * as the checkpoints, locks and run histories beside them are. They name the
+ * records each run wrote, and the org it wrote them to.
+ */
+export const RUN_FILE_MODE = 0o600;
+
 /** A journal file on disk, at `filePath`: created when it is not there, added to when it is. */
 export function nodeRunFile(filePath: string): RunFile {
-  const fd = openSync(filePath, 'a+');
+  const fd = openSync(filePath, 'a+', RUN_FILE_MODE);
   let size = fstatSync(fd).size;
   return {
     size: () => size,

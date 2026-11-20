@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -568,6 +568,22 @@ describe('ForgeRunStore', () => {
         expect(lines.filter((line) => line.startsWith('{"part"'))).toHaveLength(2);
         expect(lines.filter((line) => line.startsWith('["c"'))).toHaveLength(2);
       });
+
+      // Windows keeps no POSIX modes: its user profile holds the files apart.
+      it.skipIf(process.platform === 'win32')(
+        'creates the file its owner’s alone: it names the records the run wrote',
+        () => {
+          const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
+          dirs.push(dir);
+          const path = join(dir, 'run.ndjson');
+          const store = ForgeRunStore.open(nodeRunFile(path));
+          store.beginPart(at);
+          store.setMapping('created', src('001', 1), tgt('001', 1), 'Account');
+          store.close();
+
+          expect(statSync(path).mode & 0o777).toBe(0o600);
+        },
+      );
     });
   });
 

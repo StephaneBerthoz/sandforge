@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { appendFile, mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 import * as z from 'zod';
@@ -23,6 +23,7 @@ import {
   jobEndedTimesOf,
   journalLines,
   nodeRunFile,
+  RUN_FILE_MODE,
   storedRootsOf,
   WITH_THEIR_RECORD_TAG,
   type RunFile,
@@ -79,16 +80,32 @@ export interface ForgeRunJournalDeps {
 }
 
 /**
+ * What the folder of the journals is made with, and set back to as a run
+ * begins: its owner alone opens it.
+ */
+const RUNS_DIR_MODE = 0o700;
+
+/**
  * The journal of runs over Node's file system, under the extension's storage
- * directory, in `forge-runs/`.
+ * directory, in `forge-runs/`: the folder and each file in it their owner's
+ * alone (`RUN_FILE_MODE`), where the platform keeps POSIX modes.
  */
 export function nodeRunJournal(storagePath: string): ForgeRunJournal {
   return new ForgeRunJournal({
     storagePath,
-    appendFile: (filePath, content) => appendFile(filePath, content, 'utf8'),
+    appendFile: (filePath, content) =>
+      appendFile(filePath, content, { encoding: 'utf8', mode: RUN_FILE_MODE }),
     readLines: (filePath) => linesOf(filePath),
     mkdir: async (dirPath) => {
-      await mkdir(dirPath, { recursive: true });
+      await mkdir(dirPath, { recursive: true, mode: RUNS_DIR_MODE });
+      if (process.platform === 'win32') return;
+      // Up to 1.84 the folder and its journals were made as the umask left
+      // them, readable by every user of the machine: shut, the folder keeps
+      // the journals it already holds from them too. One another user owns
+      // keeps its mode, the files made in it their owner's all the same.
+      await chmod(dirPath, RUNS_DIR_MODE).catch((err: unknown) => {
+        if ((err as NodeJS.ErrnoException).code !== 'EPERM') throw err;
+      });
     },
     rm: (filePath) => rm(filePath, { force: true }),
     rename: (from, to) => rename(from, to),

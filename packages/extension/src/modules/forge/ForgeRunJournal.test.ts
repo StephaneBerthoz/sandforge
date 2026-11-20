@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ForgeGraph } from '@sandforge/shared';
@@ -627,6 +627,81 @@ describe("a run's journal", () => {
       await rm(storage, { recursive: true, force: true });
     }
   });
+
+  // The journals name the records each run wrote and the org it wrote them
+  // to: made with the umask's modes, a journal was every local user's to read.
+  // Windows keeps no POSIX modes: its user profile holds the files apart.
+  it.skipIf(process.platform === 'win32')(
+    'keeps the folder of its journals and every file of a run its owner’s alone, the removals’ among them',
+    async () => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'forge-journal-'));
+      try {
+        const journal = nodeRunJournal(storage);
+        await runThatWrote(journal, 'private');
+        await journal.keepCheckpoint('private', {
+          state: 'taken',
+          checkpointId: 'cp-1',
+          name: 'Before Forge run',
+          takenAt: '2026-10-13T09:59:00.000Z',
+          expiresAt: null,
+          objects: ['Account'],
+          records: 2,
+          bytes: 2_048,
+          requests: 3,
+          added: [],
+          notHeld: [],
+        });
+        await journal.stop('private', 'success', 'forge-1');
+        await journal.keepLeft('private', 0, [NEW_ACCOUNT_A]);
+        await journal.keepLeftPages(
+          'private',
+          1,
+          (async function* pages() {
+            yield { objectApiName: 'Account', ids: [NEW_ACCOUNT_B] };
+          })(),
+        );
+        await journal.keepStamps('private', 0, { [NEW_CONTACT_A]: '2026-10-13T10:05:00.000Z' });
+
+        const dir = path.join(storage, 'forge-runs');
+        const names = (await readdir(dir)).sort();
+        expect(names).toEqual([
+          'private.checkpoint.json',
+          'private.end.json',
+          'private.ndjson',
+          'private.part0.left',
+          'private.part0.stamps',
+          'private.part1.left',
+        ]);
+        expect((await stat(dir)).mode & 0o777).toBe(0o700);
+        for (const name of names) {
+          expect([name, (await stat(path.join(dir, name))).mode & 0o777]).toEqual([name, 0o600]);
+        }
+      } finally {
+        await rm(storage, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'closes to others, as a run begins, the folder of journals an earlier version left open, with the journals it holds',
+    async () => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'forge-journal-'));
+      try {
+        const dir = path.join(storage, 'forge-runs');
+        await mkdir(dir);
+        await chmod(dir, 0o755);
+        await writeFile(path.join(dir, 'before.ndjson'), '{}\n', { mode: 0o644 });
+
+        await runThatWrote(nodeRunJournal(storage), 'after');
+
+        // The folder shut, a journal it holds is no one else's to read, whatever its own mode.
+        expect((await stat(dir)).mode & 0o777).toBe(0o700);
+        expect((await stat(path.join(dir, 'after.ndjson'))).mode & 0o777).toBe(0o600);
+      } finally {
+        await rm(storage, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('takes the plan of a sample a run wrote, beside its journal, with the journal, and no other run’s', async () => {
     // The plan holds the ids of a production's records: kept once its journal

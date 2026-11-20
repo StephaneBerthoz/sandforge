@@ -323,6 +323,26 @@ test('the FAQ says what SandForge keeps on the machine, where the code keeps it'
   );
   assert.ok(body.includes('`forge-runs/`'), 'the Forge journals');
 
+  // The journals name the records each run wrote and the org it wrote them
+  // to: made as the umask left them, they were every local user's to read.
+  const runStore = read(...modules, 'forge', 'ForgeRunStore.ts');
+  assert.match(runStore, /export const RUN_FILE_MODE = 0o600;/);
+  assert.match(runStore, /openSync\(filePath, 'a\+', RUN_FILE_MODE\)/);
+  const runJournal = read(...modules, 'forge', 'ForgeRunJournal.ts');
+  assert.match(runJournal, /const RUNS_DIR_MODE = 0o700;/);
+  assert.match(
+    runJournal,
+    /appendFile\(filePath, content, \{ encoding: 'utf8', mode: RUN_FILE_MODE \}\)/,
+  );
+  assert.match(runJournal, /mkdir\(dirPath, \{ recursive: true, mode: RUNS_DIR_MODE \}\)/);
+  assert.match(runJournal, /chmod\(dirPath, RUNS_DIR_MODE\)/);
+  for (const where of ['`forge-runs/`', '`~/.sandforge/forge-runs/`']) {
+    assert.ok(
+      body.includes(`${where}, readable by your user alone`),
+      `the Forge journals in ${where}, their owner's alone`,
+    );
+  }
+
   assert.match(
     read(...EXT_SRC, 'bridge', 'handlers', 'FrozenDatasetHandler.ts'),
     /path\.join\(os\.homedir\(\), '\.sandforge-sas'\)/,
