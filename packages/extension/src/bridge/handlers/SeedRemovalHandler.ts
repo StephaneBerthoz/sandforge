@@ -51,11 +51,7 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import {
-  objectsRemovedOf,
-  removalOrg,
-  setBackToDraftOf,
-} from '../../modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -72,7 +68,11 @@ import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { droppedCleanupLine, droppedRunWords } from '../../modules/seed/seedRunsDropped.js';
-import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
+import {
+  duplicateSetsOfRemoval,
+  objectsRemovedWithSets,
+  seedSweepInput,
+} from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
   sweepAuditDetails,
@@ -998,21 +998,27 @@ export class SeedRemovalHandler implements DomainHandler {
       // the lease: a person answering holds no permission set assigned. It
       // deletes at its turn, once the removal has read the run's records.
       await sweepParts?.ask();
+      const org = removalOrg(conn, 'seed:remove');
+      // Read before the first delete: the items that name them go with the records.
+      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       // Asked to mute, the removal reads what its deletes fire, what the sweep
       // deletes among them, plans the mute from it, and takes the lease before
       // its first delete; it is given back as the removal ends, whatever it
       // ended on. Refused, nothing goes. The confirmation reads none of this:
       // what a mute silences is read here alone. Among its deletes, the
       // duplicate record sets it takes with the records of a run that kept
-      // the user it wrote as: read on the run's objects alone, a trigger on
-      // the sets fired under the mute asked for.
+      // the user it wrote as, and those its deletes leave empty, whoever the
+      // run wrote as: read on the run's objects alone, a trigger on the sets
+      // fired under the mute asked for.
       let removalMute: RunMute | undefined;
       if (asked.muteAutomation === true) {
         const removed = [...new Set(plan.map((object) => object.objectApiName))];
         const steps = removalStepsWithSweep(
           {
             setToDraft: setBackToDraftOf(removed),
-            delete: objectsRemovedOf(removed, [], { userKept: run.runUserId !== undefined }),
+            delete: objectsRemovedWithSets(removed, duplicateSets, {
+              userKept: run.runUserId !== undefined,
+            }),
           },
           sweepParts?.takes ?? [],
         );
@@ -1039,13 +1045,10 @@ export class SeedRemovalHandler implements DomainHandler {
         held = await prepared.acquire(operationId);
         mutedAutomation = held.outcome;
       };
-      const org = removalOrg(conn, 'seed:remove');
-      // Read before the first delete: the items that name them go with the records.
-      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       const {
         result: removed,
         notes,
-        duplicateSets: setsTaken,
+        emptied,
       } = await removeSyncRun({
         run,
         org,
@@ -1070,13 +1073,23 @@ export class SeedRemovalHandler implements DomainHandler {
           if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
-      }).finally(async () => {
-        if (held) mutedAutomation = await held.release();
-      });
+      })
+        // The sets its deletes left empty go while the mute it asked for
+        // holds: taken once the lease was given back, a trigger on the sets
+        // ran on each, unmuted. Stopped, it makes no call to the org it can
+        // do without.
+        .then(async (outcome) => ({
+          ...outcome,
+          emptied:
+            outcome.result.status === 'cancelled'
+              ? {}
+              : await duplicateSets.take(outcome.duplicateSets),
+        }))
+        .finally(async () => {
+          if (held) mutedAutomation = await held.release();
+        });
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
-      // Stopped, it makes no call to the org it can do without.
-      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take(setsTaken);
       for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
         this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
       }

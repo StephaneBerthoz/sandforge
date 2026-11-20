@@ -1361,6 +1361,123 @@ describe('sandforge-seed --remove', () => {
       expect(org.deletes).toEqual([]);
     });
 
+    describe('of a run whose summary names no user, a duplicate rule of the target having made a set of its records', () => {
+      const SET = fakeId('0GK', 1);
+
+      beforeEach(() => {
+        org = new MemoryRemovalOrg({
+          Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }],
+          Contact: [
+            { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+          ],
+        });
+        const at = new Date(Date.now() - 10 * 60_000).toISOString();
+        org.add('Account', { Id: A1 }, at);
+        org.add('Account', { Id: A2 }, at);
+        org.add('Contact', { Id: C1, AccountId: A1 }, at);
+        org.add('Contact', { Id: C2, AccountId: A2 }, at);
+        org.add('DuplicateRecordSet', { Id: SET }, at);
+        org.add(
+          'DuplicateRecordItem',
+          { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: SET },
+          at,
+        );
+        vi.mocked(removalOrg).mockReturnValue(org);
+      });
+
+      it('reads what fires on the set its deletes leave empty, and deletes nothing when something does, without --accept-automation', async () => {
+        // The pass after the deletes takes the sets they left empty, whoever
+        // the run wrote as: read on the run's objects alone, a trigger on the
+        // sets went unsaid and unasked.
+        automationRead.mockResolvedValueOnce({
+          objectsRead: ['Contact', 'Account', 'DuplicateRecordSet'],
+          objects: [
+            {
+              objectApiName: 'DuplicateRecordSet',
+              flows: [],
+              triggers: [{ name: 'SetAudit', events: ['beforeDelete'] }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 3,
+        });
+        const exit = stubExit();
+
+        await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+        expect(automationRead).toHaveBeenLastCalledWith('TGT', [
+          'Contact',
+          'Account',
+          'DuplicateRecordSet',
+        ]);
+        expect(stdout).toContain('  DuplicateRecordSet: before delete: Apex trigger SetAudit\n');
+        expect(exit.stderr()).toContain(
+          'DuplicateRecordSet: Apex trigger SetAudit (before delete)',
+        );
+        expect(org.deletes).toEqual([]);
+        expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SET]);
+      });
+
+      it('takes the set its deletes left empty while the mute’s lease is held, then gives it back', async () => {
+        // Taken once the lease was given back, the set fired what the mute
+        // was asked to keep quiet.
+        const said: string[] = [];
+        const events: WritePathStep[] = [];
+        const muted: MutedAutomation = {
+          state: 'muted',
+          assigned: ['PS_Bypass'],
+          held: [],
+          permissions: ['Bypass'],
+          silenced: [],
+          stillRan: [],
+        };
+        const automation = { objectsRead: [], objects: [], unread: [] } as never;
+        vi.mocked(muteForRun).mockResolvedValueOnce({
+          automation,
+          muted,
+          prepared: {
+            plan: { assign: [], silenced: [], stillRuns: [] },
+            automation,
+            planned: muted,
+            acquire: async () => {
+              events.push('leaseAcquire');
+              said.push('lease');
+              return {
+                outcome: muted,
+                release: async () => {
+                  events.push('leaseRelease');
+                  said.push('release');
+                  return { ...muted, released: true };
+                },
+              };
+            },
+          },
+        });
+        const destroy = org.destroy.bind(org);
+        vi.spyOn(org, 'destroy').mockImplementation(async (objectApiName, ids) => {
+          events.push('write');
+          said.push(objectApiName);
+          return destroy(objectApiName, ids);
+        });
+
+        await main(argv('--remove', file, '--target', 'TGT', '--mute-automation', '--json'));
+
+        expect(said).toEqual(['lease', 'Contact', 'Account', 'DuplicateRecordSet', 'release']);
+        expect(writePathOrderDefects(events)).toEqual([]);
+        expect(org.all('DuplicateRecordSet')).toEqual([]);
+        expect(JSON.parse(stdout)).toMatchObject({
+          result: {
+            status: 'success',
+            objects: expect.arrayContaining([
+              expect.objectContaining({ objectApiName: 'DuplicateRecordSet', deleted: 1 }),
+            ]),
+          },
+        });
+      });
+    });
+
     it('removes all the same with --accept-automation, having said what fires', async () => {
       automationRead.mockResolvedValueOnce(firing());
       let stderr = '';

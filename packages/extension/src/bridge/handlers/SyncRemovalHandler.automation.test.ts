@@ -7,6 +7,7 @@ import { firedOnRemovalStepsOf } from '@sandforge/shared';
 
 import { SyncRemovalHandler } from './SyncRemovalHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import {
@@ -278,6 +279,70 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     ]);
     // A run kept before its file named its user: its removal takes no set.
     expect(unkept?.steps.delete).not.toContain('DuplicateRecordSet');
+  });
+
+  it('names what fires on the duplicate record sets its deletes leave empty, of a run whose file names no user, read by the items that name its records', async () => {
+    // The pass after the deletes takes the sets they left empty, whoever the
+    // run wrote as: read on the run's objects alone, a trigger on the sets
+    // ran unannounced.
+    const SET = id('0GK', 1);
+    const asked: string[] = [];
+    vi.mocked(getJsforceConnection).mockResolvedValueOnce({
+      query: async (soql: string) => {
+        asked.push(soql);
+        return soql.startsWith('SELECT DuplicateRecordSetId FROM DuplicateRecordItem')
+          ? { totalSize: 1, done: true, records: [{ DuplicateRecordSetId: SET }] }
+          : { totalSize: 0, done: true, records: [] };
+      },
+    } as never);
+    const reader = new TargetAutomationReader({
+      query: async () => ({ records: [], requests: 1 }),
+      toolingQuery: async (_orgId, soql) => ({
+        records:
+          soql === TRIGGERS_SOQL
+            ? [triggerRow('DuplicateRecordSet', 'SetAudit', ['UsageBeforeDelete'])]
+            : [],
+        requests: 1,
+      }),
+    });
+    handler.setTargetAutomation(reader);
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all' }));
+
+    expect(errors()).toEqual([]);
+    expect(asked).toEqual([
+      `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN ('${id('001', 1)}')`,
+      `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE RecordId IN ('${id('801', 1)}')`,
+    ]);
+    const steps = answer()!.steps;
+    expect(steps.delete).toEqual(['Order', 'Account', 'DuplicateRecordSet']);
+    expect(
+      firedOnRemovalStepsOf(answer()!.automation, steps).map(
+        (f) => `${f.step} ${f.objectApiName} ${f.name} ${f.when}`,
+      ),
+    ).toEqual(['delete DuplicateRecordSet SetAudit before']);
+  });
+
+  it('names no set of a run whose file names no user when no item names its records, or they cannot be read', async () => {
+    vi.mocked(getJsforceConnection).mockResolvedValueOnce({
+      query: async () => ({ totalSize: 0, done: true, records: [] }),
+    } as never);
+    vi.mocked(getJsforceConnection).mockRejectedValueOnce(new Error('The org is not connected.'));
+    handler.setTargetAutomation({
+      read: vi.fn(async () => ({ objectsRead: [], objects: [], unread: [] }) as never),
+    });
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all' }));
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all' }));
+
+    expect(errors()).toEqual([]);
+    const answers = posted<BaseMessage & { payload: AutomationAnswer }>(
+      'sync:remove:automation:response',
+    ).map((m) => m.payload.steps.delete);
+    expect(answers).toEqual([
+      ['Order', 'Account'],
+      ['Order', 'Account'],
+    ]);
   });
 
   it('reads the objects of every step once, asking for the triggers of an undelete', async () => {

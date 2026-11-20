@@ -101,14 +101,14 @@ import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
 import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
-import {
-  objectsRemovedOf,
-  removalOrg,
-  setBackToDraftOf,
-} from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
-import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import {
+  duplicateSetsOfRemoval,
+  objectsRemovedWithSets,
+  seedSweepInput,
+} from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts } from '../src/modules/forge/ForgeRunSweep.js';
 import { withSweepFinds } from '../src/bridge/handlers/removalSweep.js';
 import { keepRunUser, RUN_USER_REQUESTS } from '../src/modules/sync/runUser.js';
@@ -4098,14 +4098,21 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
     ...new Set(objects.map(({ objectApiName }) => objectApiName)),
   ];
+  const removalTarget = removalOrg(conn, 'sandforge sync --remove');
+  // Read before the first delete, as Seed's removal reads them: the items
+  // that name them go with the records.
+  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
   const steps: ForgeRemovalSteps = removalStepsWithSweep(
     {
       bringBack: names(bringBack),
       giveBack: names(kept.kept),
       setToDraft: setBackToDraftOf(names(plan)),
       // With the duplicate record sets it takes with the records of a run
-      // that kept the user it wrote as.
-      delete: objectsRemovedOf(names(plan), [], { userKept: subject.runUserId !== undefined }),
+      // that kept the user it wrote as, and those its deletes leave empty,
+      // whoever the run wrote as.
+      delete: objectsRemovedWithSets(names(plan), duplicateSets, {
+        userKept: subject.runUserId !== undefined,
+      }),
     },
     parts?.takes ?? [],
   );
@@ -4191,10 +4198,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       });
     mutedAutomation = held.outcome;
   };
-  const removalTarget = removalOrg(conn, 'sandforge sync --remove');
-  // Read before the first delete, as Seed's removal reads them: the items
-  // that name them go with the records.
-  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
+  /** What became of the sets its deletes left empty, taken under the lease. */
+  let emptied: Awaited<ReturnType<typeof duplicateSets.take>> = {};
   /** Why it stopped for objects its user may not delete, once it did. */
   let undeletableRefused: RunRefusal | undefined;
   try {
@@ -4230,6 +4235,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               }),
       },
     });
+    // The sets its deletes left empty go while the lease is held, as Seed's
+    // removal takes them. Stopped, or before its first delete, it makes no
+    // call to the org it can do without.
+    if (outcome.result.status !== 'cancelled' && !outcome.stoppedForUndeletable) {
+      emptied = await duplicateSets.take(outcome.duplicateSets);
+    }
   } finally {
     releaseStop();
     // What the sweep found made for the run, kept whatever the removal ended
@@ -4262,9 +4273,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     if (undeletableRefused) refuseTheRemoval(undeletableRefused);
     process.exit(1);
   }
-  // Stopped, it makes no call to the org it can do without.
-  const emptied =
-    outcome.result.status === 'cancelled' ? {} : await duplicateSets.take(outcome.duplicateSets);
   for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
     process.stderr.write(`${note}\n`);
   }

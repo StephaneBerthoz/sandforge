@@ -4,6 +4,7 @@ import type { ForgeTargetAutomation } from '@sandforge/shared';
 import type { RemovalOrg } from '../forge/ForgeRunRemoval';
 import {
   duplicateSetsOfRemoval,
+  objectsRemovedWithSets,
   seedSweepInput,
   seedWrittenBetween,
   writerOf,
@@ -100,7 +101,53 @@ describe('duplicateSetsOfRemoval', () => {
 
     const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
 
+    expect(sets.objects).toEqual([]);
     expect((await sets.take()).note).toContain('INVALID_TYPE');
+  });
+
+  it('names the sets’ object before the first delete once it read one, and none of a run it read none of', async () => {
+    // Named with the rest of what the removal deletes, what the target runs
+    // as a set goes is read, asked about and muted with the run's records.
+    const read = await duplicateSetsOfRemoval(
+      orgHolding(() => [{ DuplicateRecordSetId: SET }]).org,
+      [{ objectApiName: 'Contact', ids: [CONTACT] }],
+    );
+    const none = await duplicateSetsOfRemoval(orgHolding(() => []).org, [
+      { objectApiName: 'Contact', ids: [CONTACT] },
+    ]);
+
+    expect(read.objects).toEqual(['DuplicateRecordSet']);
+    expect(none.objects).toEqual([]);
+  });
+});
+
+describe('objectsRemovedWithSets', () => {
+  const read = { objects: ['DuplicateRecordSet'] };
+  const none = { objects: [] };
+
+  it('names the sets the pass after the deletes takes, of a run that kept no user', () => {
+    // Read on the run's objects alone, a trigger on the sets fired as the
+    // pass deleted them, neither read nor asked about.
+    expect(objectsRemovedWithSets(['Contact', 'Account'], read, { userKept: false })).toEqual([
+      'Contact',
+      'Account',
+      'DuplicateRecordSet',
+    ]);
+  });
+
+  it('names them once of a run that kept its user, whose removal takes them too', () => {
+    expect(objectsRemovedWithSets(['Contact'], read, { userKept: true })).toEqual([
+      'Contact',
+      'DuplicateRecordSet',
+    ]);
+    expect(objectsRemovedWithSets(['Contact'], none, { userKept: true })).toEqual([
+      'Contact',
+      'DuplicateRecordSet',
+    ]);
+  });
+
+  it('names no set of a run that kept no user and has none read', () => {
+    expect(objectsRemovedWithSets(['Contact'], none, { userKept: false })).toEqual(['Contact']);
   });
 });
 

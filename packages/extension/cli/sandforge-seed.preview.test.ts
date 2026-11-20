@@ -372,8 +372,20 @@ describe('sandforge-seed --remove --preview', () => {
 
       await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
 
-      expect(automationRead).toHaveBeenCalledWith('TGT', ['Contact', 'Account']);
       expect(setOf(JSON.parse(stdout) as { preview: SeedRemovalPreview })).toBeUndefined();
+    });
+
+    it('reads what fires on the set the removal’s pass takes once its deletes leave it empty, of a run whose summary names no user', async () => {
+      // Said as the removal says it before its first delete: read on the
+      // run's objects alone, the preview said nothing fires, and the removal
+      // that followed was refused for the trigger on the sets.
+      await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+      expect(automationRead).toHaveBeenCalledWith('TGT', [
+        'Contact',
+        'Account',
+        'DuplicateRecordSet',
+      ]);
     });
   });
 

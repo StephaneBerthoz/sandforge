@@ -727,6 +727,125 @@ describe('a sweep asked with the removal of a Seed run', () => {
         });
         expect(tied.ids('DuplicateRecordSet')).toEqual([THE_RUNS, SHARED]);
       });
+
+      describe('asked to mute the target’s automation', () => {
+        let leases: string;
+        /** What the org runs: a Flow on the sets alone, kept quiet by `Data_Load`. */
+        const read = vi.fn(
+          async (_orgId: string, objects: readonly string[]) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('DuplicateRecordSet')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'DuplicateRecordSet' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        /** The set's delete refused while the bypass is not assigned, as the Flow refuses it. */
+        let permissions: ReturnType<typeof leasedConnection>['permissions'];
+
+        beforeEach(() => {
+          leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sets-mute-'));
+          handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+          read.mockClear();
+          handler.setTargetAutomation({ read });
+          const leased = leasedConnection(tied, USER);
+          permissions = leased.permissions;
+          vi.mocked(getJsforceConnection).mockResolvedValue({
+            ...leased.conn,
+            sobject: (object: string) => {
+              const records = leased.conn.sobject(object);
+              if (object !== 'DuplicateRecordSet') return records;
+              return {
+                ...records,
+                destroy: async (ids: string[]) =>
+                  permissions.assignments().length > 0
+                    ? (records as ReturnType<typeof tied.conn.sobject>).destroy(ids)
+                    : ids.map((recordId) => ({
+                        id: recordId,
+                        success: false,
+                        errors: [
+                          {
+                            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                            message: 'A set cannot be deleted without the bypass.',
+                          },
+                        ],
+                      })),
+              };
+            },
+          } as never);
+        });
+
+        afterEach(() => {
+          rmSync(leases, { recursive: true, force: true });
+        });
+
+        it('takes the set its deletes left empty under the mute, planned on the sets, of a seed whose file names no user', async () => {
+          // Read on the seed's objects alone, the Flow on the sets was neither
+          // read nor muted, and the pass that takes the sets the deletes left
+          // empty sent them once the lease was given back.
+          await handler.handle(buildMsg('seed:remove', { runId: 'op-seed', muteAutomation: true }));
+
+          expect(errors()).toEqual([]);
+          expect(read).toHaveBeenCalledTimes(1);
+          expect(read.mock.calls[0]?.[1]).toEqual(['Contact', 'Account', 'DuplicateRecordSet']);
+          expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+          expect(answer()?.objects.at(-1)).toMatchObject({
+            objectApiName: 'DuplicateRecordSet',
+            deleted: 1,
+            refused: 0,
+          });
+          expect(answer()?.mutedAutomation).toMatchObject({
+            state: 'muted',
+            assigned: ['Data_Load'],
+            silenced: [expect.objectContaining({ objectApiName: 'DuplicateRecordSet' })],
+          });
+          expect(writePathOrderDefects([...tied.events, 'result'] as WritePathStep[])).toEqual([]);
+          expect(permissions.assignments()).toEqual([]);
+        });
+
+        it('takes under the mute the set the removal did not read as the seed’s own, of a seed that kept its user', async () => {
+          // Made long after the seed, the set is outside the window the
+          // removal reads the seed's sets in; the pass after the deletes
+          // takes it, and did so once the lease was given back. The shared
+          // set the removal reads stays, its other contact's report in it.
+          tied.shape('DuplicateRecordSet', {
+            children: [
+              {
+                childSObject: 'DuplicateRecordItem',
+                field: 'DuplicateRecordSetId',
+                cascadeDelete: true,
+              },
+            ],
+          });
+          Object.assign(tied.row('DuplicateRecordSet', THE_RUNS) ?? {}, {
+            CreatedDate: LONG_AFTER,
+            LastModifiedDate: LONG_AFTER,
+          });
+          await keep(
+            'op-seed-user',
+            [
+              ['Account', [ACCOUNT]],
+              ['Contact', [CONTACT]],
+            ],
+            USER,
+          );
+
+          await handler.handle(
+            buildMsg('seed:remove', { runId: 'op-seed-user', muteAutomation: true }),
+          );
+
+          expect(errors()).toEqual([]);
+          expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+          expect(answer()?.objects.at(-1)).toMatchObject({
+            objectApiName: 'DuplicateRecordSet',
+            deleted: 1,
+            refused: 0,
+          });
+          expect(writePathOrderDefects([...tied.events, 'result'] as WritePathStep[])).toEqual([]);
+          expect(permissions.assignments()).toEqual([]);
+        });
+      });
     });
 
     it('takes what is tied to nothing when asked', async () => {

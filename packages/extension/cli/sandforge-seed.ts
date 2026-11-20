@@ -71,7 +71,6 @@ import { ACCOUNT, leftOutForAccountKind } from '../src/core/common/platformRecor
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
 import {
-  objectsRemovedOf,
   removalOrg,
   setBackToDraftOf,
   type RemovalPreviewObject,
@@ -222,7 +221,11 @@ import {
   nodeSeedRunsDropped,
 } from '../src/modules/seed/seedRunsDropped.js';
 import { commandOf } from './invocation.js';
-import { duplicateSetsOfRemoval, seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import {
+  duplicateSetsOfRemoval,
+  objectsRemovedWithSets,
+  seedSweepInput,
+} from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepParts, type SweepInput } from '../src/modules/forge/ForgeRunSweep.js';
 import { removalStatusWithSweep } from '../src/modules/forge/removalOutcome.js';
 import { withSweepFinds } from '../src/bridge/handlers/removalSweep.js';
@@ -3741,12 +3744,18 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // back from the recycle bin, and what runs on an undelete is not read. A stop
   // while the sweep read asks nothing: the removal stops at its next call.
   // The duplicate record sets it takes with the records of a run that kept the
-  // user it wrote as are among its deletes, read and asked about with them.
+  // user it wrote as are among its deletes, read and asked about with them,
+  // and so are those its deletes leave empty, whoever the run wrote as: read
+  // before the first delete, the items that name them going with the records.
+  const removalTarget = removalOrg(conn, 'sandforge seed --remove');
+  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
   const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
   const steps: ForgeRemovalSteps = removalStepsWithSweep(
     {
       setToDraft: setBackToDraftOf(removed),
-      delete: objectsRemovedOf(removed, [], { userKept: subject.runUserId !== undefined }),
+      delete: objectsRemovedWithSets(removed, duplicateSets, {
+        userKept: subject.runUserId !== undefined,
+      }),
     },
     parts?.takes ?? [],
   );
@@ -3832,9 +3841,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       });
     mutedAutomation = held.outcome;
   };
-  const removalTarget = removalOrg(conn, 'sandforge seed --remove');
-  // Read before the first delete: the items that name them go with the records.
-  const duplicateSets = await duplicateSetsOfRemoval(removalTarget, run.created);
+  /** What became of the sets its deletes left empty, taken under the lease. */
+  let emptied: Awaited<ReturnType<typeof duplicateSets.take>> = {};
   /** Why it stopped for objects its user may not delete, once it did. */
   let undeletableRefused: RunRefusal | undefined;
   try {
@@ -3859,6 +3867,13 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           }),
       },
     });
+    // The sets its deletes left empty go while the lease is held: taken once
+    // it was given back, a trigger on the sets ran on each, unmuted. Stopped,
+    // or before its first delete, it makes no call to the org it can do
+    // without.
+    if (outcome.result.status !== 'cancelled' && !outcome.stoppedForUndeletable) {
+      emptied = await duplicateSets.take(outcome.duplicateSets);
+    }
   } finally {
     releaseStop();
     // What the sweep found made for the run, kept whatever the removal ended
@@ -3891,9 +3906,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     if (undeletableRefused) refuseTheRemoval(undeletableRefused);
     process.exit(1);
   }
-  // Stopped, it makes no call to the org it can do without.
-  const emptied =
-    outcome.result.status === 'cancelled' ? {} : await duplicateSets.take(outcome.duplicateSets);
   for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
     process.stderr.write(`${note}\n`);
   }
@@ -4139,12 +4151,17 @@ async function previewRemoval(
     for (const line of sweepListingLines(sweepListing, args.target, args, true)) say(line);
   }
   // What the target runs as a removal takes the run back, and as its sweep
-  // deletes, read and said as the removal says it before its first delete.
+  // deletes, read and said as the removal says it before its first delete:
+  // the sets its deletes would leave empty among them, read as it reads them.
+  const sets = await duplicateSetsOfRemoval(
+    removalOrg(conn, 'sandforge seed --remove --preview'),
+    run.created,
+  );
   const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
   const steps: ForgeRemovalSteps = removalStepsWithSweep(
     {
       setToDraft: setBackToDraftOf(removed),
-      delete: objectsRemovedOf(removed, [], { userKept: subject.runUserId !== undefined }),
+      delete: objectsRemovedWithSets(removed, sets, { userKept: subject.runUserId !== undefined }),
     },
     sweepListing ? sweepTakenObjects(sweepListing, args) : [],
   );

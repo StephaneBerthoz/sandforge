@@ -1243,6 +1243,85 @@ describe('a sweep asked with the removal of a Sync run', () => {
         expect(permissions.assignments()).toEqual([]);
       });
 
+      it('takes the set its deletes left empty under the mute, planned on the sets, of a run whose file names no user', async () => {
+        // Read on the run's objects alone, the Flow on the sets was neither
+        // read nor muted, and the pass that takes the sets the deletes left
+        // empty sent them once the lease was given back.
+        const THE_RUNS = id('0GK', 1);
+        tied.shape('Contact', {
+          references: { AccountId: ['Account'] },
+          children: [
+            { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+          ],
+        });
+        tied.shape('DuplicateRecordItem', {
+          references: { RecordId: ['Contact'], DuplicateRecordSetId: ['DuplicateRecordSet'] },
+        });
+        tied.add('DuplicateRecordSet', rec(THE_RUNS, 'The run’s set', USER, JUST_AFTER));
+        tied.add('DuplicateRecordItem', {
+          ...rec(id('0GL', 1), 'Item 1', USER, JUST_AFTER),
+          RecordId: CONTACT,
+          DuplicateRecordSetId: THE_RUNS,
+        });
+        read.mockImplementation(
+          async (_orgId, objects) =>
+            ({
+              ...ON_DELETE,
+              objectsRead: [...objects],
+              objects: objects.includes('DuplicateRecordSet')
+                ? [{ ...ON_DELETE.objects[0], objectApiName: 'DuplicateRecordSet' }]
+                : [],
+            }) as ForgeTargetAutomation,
+        );
+        const leased = await vi.mocked(getJsforceConnection).getMockImplementation()?.(
+          '' as never,
+          undefined as never,
+          undefined as never,
+        );
+        const conn = (leased ?? {}) as typeof tied.conn;
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          ...conn,
+          sobject: (object: string) => {
+            const records = conn.sobject(object);
+            if (object !== 'DuplicateRecordSet') return records;
+            return {
+              ...records,
+              destroy: async (ids: string[]) =>
+                permissions.assignments().length > 0
+                  ? records.destroy(ids)
+                  : ids.map((recordId) => ({
+                      id: recordId,
+                      success: false,
+                      errors: [
+                        {
+                          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                          message: 'A set cannot be deleted without the bypass.',
+                        },
+                      ],
+                    })),
+            };
+          },
+        } as never);
+
+        await handler.handle(buildMsg('sync:remove', { runId: 'run-cases', muteAutomation: true }));
+
+        expect(errors()).toEqual([]);
+        expect(read.mock.calls.at(-1)?.[1]).toContain('DuplicateRecordSet');
+        expect(tied.ids('DuplicateRecordSet')).toEqual([]);
+        expect(answer()?.objects.at(-1)).toMatchObject({
+          objectApiName: 'DuplicateRecordSet',
+          deleted: 1,
+          refused: 0,
+        });
+        expect(answer()?.mutedAutomation).toMatchObject({
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: [expect.objectContaining({ objectApiName: 'DuplicateRecordSet' })],
+        });
+        expect(writePathOrderDefects([...steps(), 'result'] as WritePathStep[])).toEqual([]);
+        expect(permissions.assignments()).toEqual([]);
+      });
+
       it('assigns nothing once a stop came while the sweep asked', async () => {
         const registry = new BackgroundOperationRegistry();
         handler.setRegistry(registry);

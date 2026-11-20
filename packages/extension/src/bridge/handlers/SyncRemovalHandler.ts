@@ -55,11 +55,7 @@ import { TimeoutError, TimeoutManager } from '../../core/engine/TimeoutManager.j
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import {
-  objectsRemovedOf,
-  removalOrg,
-  setBackToDraftOf,
-} from '../../modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -92,7 +88,12 @@ import { withRestoreAudit, type BackupReader } from '../../modules/sync/SyncRunR
 import { answerJobsInFlight, jobAnsweredLines } from '../../modules/sync/inFlightJob.js';
 import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
-import { duplicateSetsOfRemoval, seedSweepInput } from '../../modules/seed/seedRunSweep.js';
+import {
+  duplicateSetsOfRemoval,
+  objectsRemovedWithSets,
+  seedSweepInput,
+  type DuplicateSetsOfRemoval,
+} from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
   sweepAuditDetails,
@@ -407,10 +408,15 @@ export class SyncRemovalHandler implements DomainHandler {
    * of what the backup store keeps, the activated orders it sets back to
    * Draft and what it deletes — files and records alike, every one it
    * created, `again`, the copies the platform made of its lines on an
-   * object it never wrote, and the duplicate record sets it takes with the
-   * records of a run that kept the user it wrote as.
+   * object it never wrote, the duplicate record sets it takes with the
+   * records of a run that kept the user it wrote as, and those its deletes
+   * leave empty, whoever the run wrote as (`sets`).
    */
-  private removalStepsOf(run: SyncRunKept, again = false): ForgeRemovalSteps {
+  private removalStepsOf(
+    run: SyncRunKept,
+    again: boolean,
+    sets: Pick<DuplicateSetsOfRemoval, 'objects'>,
+  ): ForgeRemovalSteps {
     const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
       ...new Set(objects.map(({ objectApiName }) => objectApiName)),
     ];
@@ -419,8 +425,35 @@ export class SyncRemovalHandler implements DomainHandler {
       bringBack: names(syncUndeletePlan(run)),
       giveBack: names(this.keptBack(syncRestorePlan(run)).kept),
       setToDraft: setBackToDraftOf(deleted),
-      delete: objectsRemovedOf(deleted, [], { userKept: run.runUserId !== undefined }),
+      delete: objectsRemovedWithSets(deleted, sets, { userKept: run.runUserId !== undefined }),
     };
+  }
+
+  /**
+   * The duplicate record sets a removal of the run leaves empty, read for
+   * its confirmation by the items that name the run's records, as the
+   * removal reads them before its first delete: of a run that kept no user,
+   * read on the run's objects alone, a trigger on the sets the removal then
+   * deleted went unlisted. None asked of a run that kept its user, whose
+   * removal takes its sets itself and names them already; none said of an
+   * org that cannot be reached now, whose removal reads them again.
+   */
+  private async setsOfConfirmation(
+    run: SyncRunKept,
+  ): Promise<Pick<DuplicateSetsOfRemoval, 'objects'>> {
+    if (run.runUserId !== undefined || run.created.every(({ ids }) => ids.length === 0)) {
+      return { objects: [] };
+    }
+    try {
+      const conn = await getJsforceConnection(
+        run.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await duplicateSetsOfRemoval(removalOrg(conn, 'sync:remove:automation'), run.created);
+    } catch {
+      return { objects: [] };
+    }
   }
 
   /**
@@ -833,7 +866,7 @@ export class SyncRemovalHandler implements DomainHandler {
       // What a sweep ticked in the confirmation deletes too: the page names
       // its objects, as the list it shows reads them.
       const steps = removalStepsWithSweep(
-        this.removalStepsOf(run, parsed.again === true),
+        this.removalStepsOf(run, parsed.again === true, await this.setsOfConfirmation(run)),
         parsed.sweptObjects ?? [],
       );
       const objects = [...new Set(Object.values(steps).flat())];
@@ -1203,14 +1236,19 @@ export class SyncRemovalHandler implements DomainHandler {
       // permission set assigned, and what an undelete or a value given back
       // makes the target do is not read as the run's. It deletes at its turn.
       await sweepParts?.ask();
+      const org = removalOrg(conn, 'sync:remove');
+      // Read before the first delete, as Seed's removal reads them: the items
+      // that name them go with the records.
+      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       // Asked to mute, the removal reads what its writes fire, what the sweep
       // deletes among them, plans the mute from it, and takes the lease before
       // its first write; it is given back as the removal ends, whatever it
-      // ended on. Refused, nothing is written.
+      // ended on. Refused, nothing is written. The sets its deletes leave
+      // empty are among its deletes, whoever the run wrote as.
       let removalMute: RunMute | undefined;
       if (asked.muteAutomation === true) {
         const steps = removalStepsWithSweep(
-          this.removalStepsOf(run, again),
+          this.removalStepsOf(run, again, duplicateSets),
           sweepParts?.takes ?? [],
         );
         const objects = [...new Set(Object.values(steps).flat())];
@@ -1238,15 +1276,11 @@ export class SyncRemovalHandler implements DomainHandler {
         held = await prepared.acquire(operationId);
         mutedAutomation = held.outcome;
       };
-      const org = removalOrg(conn, 'sync:remove');
-      // Read before the first delete, as Seed's removal reads them: the items
-      // that name them go with the records.
-      const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
       const {
         result: removed,
         notes,
         earlierStamped,
-        duplicateSets: setsTaken,
+        emptied,
       } = await removeSyncRun({
         run,
         org,
@@ -1282,13 +1316,22 @@ export class SyncRemovalHandler implements DomainHandler {
           if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
-      }).finally(async () => {
-        if (held) mutedAutomation = await held.release();
-      });
+      })
+        // The sets its deletes left empty go while the mute it asked for
+        // holds, as Seed's removal takes them. Stopped, it makes no call to
+        // the org it can do without.
+        .then(async (outcome) => ({
+          ...outcome,
+          emptied:
+            outcome.result.status === 'cancelled'
+              ? {}
+              : await duplicateSets.take(outcome.duplicateSets),
+        }))
+        .finally(async () => {
+          if (held) mutedAutomation = await held.release();
+        });
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
-      // Stopped, it makes no call to the org it can do without.
-      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take(setsTaken);
       for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
         this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
       }

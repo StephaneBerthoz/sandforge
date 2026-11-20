@@ -49,7 +49,8 @@ import type {
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
-import { deleteBatch, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import { deleteBatch, objectsRemovedOf, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import { DUPLICATE_SET_OBJECT } from '../forge/duplicateRecordSets.js';
 import {
   SWEEP_LEAD_MS,
   SWEEP_TRAIL_MS,
@@ -101,6 +102,17 @@ interface EmptyDuplicateSets {
   note?: string;
 }
 
+/** The duplicate record sets of a run, as read before its removal, and what takes them. */
+export interface DuplicateSetsOfRemoval {
+  /**
+   * The objects the pass may delete records of: the sets', once it read one;
+   * none of a run it read none of, or could not read.
+   */
+  objects: readonly string[];
+  /** Take the sets the removal's deletes left empty, but those it took itself (`taken`). */
+  take: (taken?: readonly string[]) => Promise<EmptyDuplicateSets>;
+}
+
 /**
  * The duplicate record sets of a run, read before its removal, and what takes
  * them once its deletes emptied them.
@@ -120,11 +132,18 @@ interface EmptyDuplicateSets {
  * "1 deleted of 1" then "1 already gone of 1", as a pipeline's Sync step's
  * removal said it for real; and one it kept, changed since the run, would go
  * once its items had.
+ *
+ * Read so, before the removal's first write, the sets' object is named with
+ * the rest of what it deletes (`objects`, {@link objectsRemovedWithSets}),
+ * and the caller takes them while the mute the removal asked for holds:
+ * taken once the lease was given back, and read on the run's objects alone
+ * for a run that kept no user, a trigger on the sets ran on each, unasked
+ * and unmuted.
  */
 export async function duplicateSetsOfRemoval(
   org: RemovalOrg,
   created: Created,
-): Promise<{ take: (taken?: readonly string[]) => Promise<EmptyDuplicateSets> }> {
+): Promise<DuplicateSetsOfRemoval> {
   const unread = (err: unknown): EmptyDuplicateSets => ({
     note:
       'What the duplicate rules of the target reported of the run could not be read ' +
@@ -144,9 +163,10 @@ export async function duplicateSetsOfRemoval(
       }
     }
   } catch (err: unknown) {
-    return { take: async () => unread(err) };
+    return { objects: [], take: async () => unread(err) };
   }
   return {
+    objects: sets.size > 0 ? [DUPLICATE_SET_OBJECT] : [],
     take: async (taken = []) => {
       const byTheRemoval = new Set(taken.map((id) => id.slice(0, 15)));
       const left = [...sets].filter((set) => !byTheRemoval.has(set.slice(0, 15)));
@@ -167,7 +187,7 @@ export async function duplicateSetsOfRemoval(
       const empty = left.filter((set) => !held.has(set));
       if (empty.length === 0) return {};
       const object: ForgeUndoObjectResult = {
-        objectApiName: 'DuplicateRecordSet',
+        objectApiName: DUPLICATE_SET_OBJECT,
         planned: empty.length,
         deleted: 0,
         alreadyGone: 0,
@@ -192,6 +212,25 @@ export async function duplicateSetsOfRemoval(
       return { object };
     },
   };
+}
+
+/**
+ * The objects a removal of a Seed or Sync run deletes records of, as what the
+ * target runs as they go is read, asked about and muted: the run's, as a
+ * Forge removal takes them (`objectsRemovedOf`), and the duplicate record
+ * sets the pass after its deletes takes once they are empty, whoever the run
+ * wrote as ({@link duplicateSetsOfRemoval}). Of a run that kept no user, its
+ * removal reads none of the sets itself, and the pass deleted them unread.
+ *
+ * @param run.userKept - Whether the run kept the user it wrote as: its
+ *   removal then takes the sets it reads with its records.
+ */
+export function objectsRemovedWithSets(
+  objects: readonly string[],
+  sets: Pick<DuplicateSetsOfRemoval, 'objects'>,
+  run: { userKept: boolean },
+): string[] {
+  return [...new Set([...objectsRemovedOf(objects, [], run), ...sets.objects])];
 }
 
 /**
