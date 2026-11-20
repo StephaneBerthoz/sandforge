@@ -6509,6 +6509,12 @@
       "failedReasons": "Por que os registros falharam",
       "statusCode": "Código de status",
       "sentAgainForALock": "Enviados de novo por um bloqueio de registro",
+      "sentAgainForALockOf": {
+        "update_one": "{{count}} atualização que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foi enviada de novo sozinha, até 3 vezes, com uma espera mais longa a cada vez. Gravadas: {{written}}.",
+        "update_other": "{{count}} atualizações que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foram enviadas de novo sozinhas, até 3 vezes, com uma espera mais longa a cada vez. Gravadas: {{written}}.",
+        "delete_one": "{{count}} exclusão do expurgo que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foi enviada de novo sozinha, até 3 vezes, com uma espera mais longa a cada vez. Excluídos: {{written}}.",
+        "delete_other": "{{count}} exclusões do expurgo que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foram enviadas de novo sozinhas, até 3 vezes, com uma espera mais longa a cada vez. Excluídos: {{written}}."
+      },
       "writtenWithoutFields": {
         "title": "Gravados de novo sem um campo recusado pela org de destino",
         "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, ou uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica. A carga gravou cada registro de novo sem esses campos, ou com o valor que a regra de lista de opções do campo declara: o registro está na org de destino, sem o valor que o dataset tem.",

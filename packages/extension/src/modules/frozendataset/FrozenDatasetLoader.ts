@@ -154,6 +154,7 @@ import { CLOCK_LEEWAY_MS, takenAlong } from '../forge/ForgeRunRemoval.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, datasetRecordCount, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
+import { LockResentWrites } from './lockResentWrites.js';
 import {
   OPPORTUNITY_OBJECT,
   QUOTE_LINE_OBJECT,
@@ -1471,6 +1472,13 @@ export class FrozenDatasetLoader {
    * killed left its records in the target with nothing naming them.
    */
   private journal: LoadJournal | undefined;
+  /**
+   * What the updates and the purge's deletes of the load under way met of
+   * the target's record locks, as {@link updateRecords} and
+   * {@link deleteRecords} hand it their answers: what its report says of
+   * them (`sentAgainForALock`).
+   */
+  private lockResent: LockResentWrites | undefined;
 
   constructor(private readonly deps: FrozenDatasetLoaderDeps) {
     this.config = deps.config ?? {};
@@ -1584,6 +1592,7 @@ export class FrozenDatasetLoader {
       // records no mapping does, which are then read as a load that stopped.
       await this.journal?.close().catch(() => undefined);
       this.journal = undefined;
+      this.lockResent = undefined;
     }
   }
 
@@ -2251,6 +2260,8 @@ export class FrozenDatasetLoader {
     const { orgId } = options;
     // Begun with the load's first batch: one that writes nothing leaves none.
     this.journal = this.deps.mappingStore.journal?.(startedAt);
+    const lockResent = new LockResentWrites();
+    this.lockResent = lockResent;
 
     const prepared = await this.prepare(options, emit, running);
     const {
@@ -3466,6 +3477,17 @@ export class FrozenDatasetLoader {
       mapping,
     );
 
+    // A record of the purge still among its failures was not purged; any
+    // other it sent was, deleted, found gone, or taken along.
+    const sentAgainForALock = lockResent.list(
+      (objectApiName, id) =>
+        !purge.failures.some(
+          (failure) =>
+            failure.objectApiName === objectApiName &&
+            recordKey(failure.recordId) === recordKey(id),
+        ),
+    );
+
     const report: FrozenLoadReport = {
       status: hasErrors ? 'completed-with-errors' : 'completed',
       orgId,
@@ -3476,6 +3498,7 @@ export class FrozenDatasetLoader {
       placeholders,
       requiredDefaults,
       perObject,
+      ...(sentAgainForALock.length > 0 ? { sentAgainForALock } : {}),
       pass2,
       personContact,
       statuses,
@@ -4313,7 +4336,7 @@ export class FrozenDatasetLoader {
         if (deactivationField !== undefined) {
           await stop();
           await this.checkGuard(options, 'update', objectApiName, ids.length);
-          const outcomes = await this.deps.writer.update(
+          const outcomes = await this.updateRecords(
             options.orgId,
             objectApiName,
             ids.map((id) => ({ Id: id, [deactivationField]: false })),
@@ -4341,7 +4364,7 @@ export class FrozenDatasetLoader {
             if (round.length === 0) continue;
             await stop();
             await this.checkGuard(options, 'delete', objectApiName, round.length);
-            const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
+            const outcomes = await this.deleteRecords(options.orgId, objectApiName, round);
             // Already gone is what a purge wants: a parent deleted a step
             // earlier takes its cascading children with it. Run for real, a
             // reload counted ten of those as failures and called a clean load
@@ -4431,7 +4454,7 @@ export class FrozenDatasetLoader {
         if (round.length === 0) continue;
         await stop();
         await this.checkGuard(options, 'delete', objectApiName, round.length);
-        const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
+        const outcomes = await this.deleteRecords(options.orgId, objectApiName, round);
         outcomes.forEach((outcome, i) => {
           const at = purge.failures.findIndex(
             (failure) => failure.objectApiName === objectApiName && failure.recordId === round[i],
@@ -4565,7 +4588,7 @@ export class FrozenDatasetLoader {
       await stop();
       await this.checkGuard(options, 'update', objectApiName, pastDraft.length);
       drafted.push(...pastDraft);
-      await this.deps.writer.update(
+      await this.updateRecords(
         options.orgId,
         objectApiName,
         pastDraft.map(({ id }) => ({ Id: id, Status: draft })),
@@ -4627,10 +4650,11 @@ export class FrozenDatasetLoader {
         let outcomes: OperationOutcome[];
         try {
           await this.checkGuard(options, 'update', objectApiName, batch.length);
-          outcomes = await writer.update(
+          outcomes = await this.updateRecords(
             options.orgId,
             objectApiName,
             batch.map(({ id, status }) => ({ Id: id, Status: status })),
+            writer,
           );
         } catch (err: unknown) {
           const reason = extractErrorMessage(err);
@@ -4672,6 +4696,37 @@ export class FrozenDatasetLoader {
     } catch {
       // As unstamped.
     }
+  }
+
+  /**
+   * Update records of the target through `writer`, and keep what the lock
+   * made of them for the report ({@link lockResent}): every update of the
+   * load after its inserts, and of a reload's purge, goes through here.
+   */
+  private async updateRecords(
+    orgId: string,
+    objectApiName: string,
+    records: Array<Record<string, unknown>>,
+    writer: FrozenDmlWriter = this.deps.writer,
+  ): Promise<OperationOutcome[]> {
+    const outcomes = await writer.update(orgId, objectApiName, records);
+    this.lockResent?.updated(objectApiName, outcomes);
+    return outcomes;
+  }
+
+  /**
+   * Delete records of the target, and keep what the lock made of them for
+   * the report ({@link lockResent}): every delete of a reload's purge goes
+   * through here.
+   */
+  private async deleteRecords(
+    orgId: string,
+    objectApiName: string,
+    ids: string[],
+  ): Promise<OperationOutcome[]> {
+    const outcomes = await this.deps.writer.delete(orgId, objectApiName, ids);
+    this.lockResent?.deleted(objectApiName, ids, outcomes);
+    return outcomes;
   }
 
   /**
@@ -5605,11 +5660,7 @@ export class FrozenDatasetLoader {
       };
     }
     await this.checkGuard(options, 'update', OPPORTUNITY_CONTACT_ROLE, updates.length);
-    const outcomes = await this.deps.writer.update(
-      options.orgId,
-      OPPORTUNITY_CONTACT_ROLE,
-      updates,
-    );
+    const outcomes = await this.updateRecords(options.orgId, OPPORTUNITY_CONTACT_ROLE, updates);
     const refused = updates.flatMap((_update, at) => {
       const outcome = outcomes[at];
       if (outcome?.success) return [];
@@ -5663,7 +5714,7 @@ export class FrozenDatasetLoader {
       (field) => !fixedAtInsert.has(field),
       async (records) => {
         await this.checkGuard(options, 'update', objectApiName, records.length);
-        return this.deps.writer.update(orgId, objectApiName, records);
+        return this.updateRecords(orgId, objectApiName, records);
       },
       () => options.signal?.aborted === true,
     );
@@ -5855,7 +5906,7 @@ export class FrozenDatasetLoader {
       if (options.signal?.aborted) continue;
       const records = entries.map((e) => ({ Id: e.id, Status: e.status }));
       await this.checkGuard(options, 'update', objectApiName, records.length);
-      const outcomes = await this.deps.writer.update(options.orgId, objectApiName, records);
+      const outcomes = await this.updateRecords(options.orgId, objectApiName, records);
       outcomes.forEach((outcome, i) => {
         if (outcome.success) {
           pass.report.restored++;
@@ -5929,7 +5980,7 @@ export class FrozenDatasetLoader {
       const records = [...perObject.values()];
       if (options.signal?.aborted) continue;
       await this.checkGuard(options, 'update', objectApiName, records.length);
-      const outcomes = await this.deps.writer.update(options.orgId, objectApiName, records);
+      const outcomes = await this.updateRecords(options.orgId, objectApiName, records);
       outcomes.forEach((outcome, i) => {
         if (outcome.success) {
           pass.report.resolved += Object.keys(records[i]).length - 1; // minus Id

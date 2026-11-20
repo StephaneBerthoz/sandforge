@@ -46,6 +46,22 @@ describe('SentAgainForALockLine', () => {
     );
   });
 
+  it('begins with the sentence its caller names, for writes other than an insert', () => {
+    render(
+      <SentAgainForALockLine
+        entry={{ rows: 1, written: 1, stillLocked: 0 }}
+        leadKey="frozen.report.sentAgainForALockOf.delete"
+        testId="lock"
+      />,
+    );
+
+    expect(screen.getByTestId('lock').textContent).toBe(
+      '1 delete of the purge the target org refused because it could not lock a record its ' +
+        'write needed (UNABLE_TO_LOCK_ROW) went again on its own, up to 3 times, waiting longer ' +
+        'each time: 1 deleted.',
+    );
+  });
+
   it('says nothing when no record was sent again', () => {
     const { container } = render(
       <SentAgainForALockLine entry={{ rows: 0, written: 0, stillLocked: 0 }} testId="lock" />,

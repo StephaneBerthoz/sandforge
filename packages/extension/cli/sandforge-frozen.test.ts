@@ -1946,6 +1946,42 @@ describe('messageLines', () => {
     ]);
   });
 
+  it("says per object the updates and the purge's deletes sent again for a record lock, and what became of them", () => {
+    // Said of the inserts alone, a load whose pass 2 or purge met the lock
+    // read as one that never met it: the writer's log alone said them.
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed-with-errors',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 2, unresolved: [] },
+          purge: {
+            deleted: { Account: 2 },
+            failures: [{ objectApiName: 'Account', errors: ['UNABLE_TO_LOCK_ROW: …'] }],
+          },
+          sentAgainForALock: [
+            { objectApiName: 'Account', write: 'delete', rows: 3, written: 2, stillLocked: 1 },
+            { objectApiName: 'Order', write: 'update', rows: 2, written: 2, stillLocked: 0 },
+          ],
+        },
+      },
+    });
+
+    expect(lines.slice(-3)).toEqual([
+      "sent again for a record lock, of the updates and of the purge's deletes:",
+      '  Account: 3 purge delete(s) refused because the target could not lock a record their ' +
+        'write needed (UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: ' +
+        '2 deleted, 1 still refused for the lock',
+      '  Order: 2 update(s) refused because the target could not lock a record their write ' +
+        'needed (UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: ' +
+        '2 written',
+    ]);
+  });
+
   it('names each field the target refused records on that went in written again, with what refused it', () => {
     // The Load tab said them, and the command said none: a record in the
     // target short of a value the dataset held read as one written whole.

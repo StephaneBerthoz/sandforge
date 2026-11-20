@@ -219,15 +219,18 @@ export async function sendLockedRowsAgain<O>(rows: {
  * row was refused so.
  *
  * @param what - What the rows are: `row(s)`, `record(s)`.
+ * @param done - What became of the rows the target took: `written`, or
+ *   `deleted` for a delete's, which "written" said as records it wrote.
  */
 export function lockedRowsLine(
   what: string,
   again: Omit<LockedRowsSentAgain<unknown>, 'outcomes'>,
+  done = 'written',
 ): string | undefined {
   if (again.refused === 0) return undefined;
   const otherwise = again.sentAgain - again.written - again.stillLocked;
   const parts = [
-    `${again.written} written`,
+    `${again.written} ${done}`,
     ...(again.stillLocked > 0 ? [`${again.stillLocked} still refused for the lock`] : []),
     ...(otherwise > 0 ? [`${otherwise} refused for another reason`] : []),
     ...(again.notSentAgain > 0

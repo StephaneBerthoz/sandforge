@@ -1092,5 +1092,245 @@ describe('FrozenDatasetLoader — the records the target refused for a record lo
     const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
 
     for (const object of report.perObject) expect(object).not.toHaveProperty('sentAgainForALock');
+    expect(report).not.toHaveProperty('sentAgainForALock');
+  });
+});
+
+describe('FrozenDatasetLoader — the updates and the purge deletes the target refused for a record lock', () => {
+  /** The target's refusal of a row it could not lock a record for, as a REST call answers it. */
+  const LOCKED = {
+    success: false,
+    errors: [
+      {
+        statusCode: 'UNABLE_TO_LOCK_ROW',
+        message: 'unable to obtain exclusive access to this record',
+        fields: [],
+      },
+    ],
+  };
+
+  /** The load's own writer over a connection answering through `sobject`, sending again at once. */
+  const writerOver = (sobject: (objectApiName: string) => unknown): FrozenDmlWriter =>
+    createBulkDmlWriter(
+      new BulkDataWriter({
+        connection: { sobject } as unknown as Connection,
+        bulkExecutor: new BulkApiExecutor(200),
+        bulkManager: new BulkApiManager(),
+        retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+        onProgress: () => undefined,
+        log: () => undefined,
+        wait: async () => undefined,
+      }),
+    );
+
+  /** Every field of the dataset's records, createable and nillable, as the target describes them. */
+  const echoDescribes = (dataset: FrozenDataset): Record<string, TargetObjectDescribe> =>
+    Object.fromEntries(
+      dataset.objects.map((o) => [
+        o.objectApiName,
+        {
+          name: o.objectApiName,
+          fields: [...new Set(o.records.flatMap((r) => Object.keys(r.fields)))].map((name) =>
+            field({ name }),
+          ),
+        },
+      ]),
+    );
+
+  /** A sas holding the mapping of an earlier load, which created `ids`, by referenceId. */
+  async function earlierLoad(ids: Record<string, string>): Promise<string> {
+    const sas = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-refusals-test-'));
+    tmpDirs.push(sas);
+    const byObject = new Map<string, string[]>();
+    for (const referenceId of Object.keys(ids)) {
+      const objectApiName = referenceId.split('-')[0];
+      byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), referenceId]);
+    }
+    await new SasReferenceIdMappingStore(sas, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map(Object.entries(ids)),
+      {
+        created: [...byObject].map(([objectApiName, referenceIds]) => ({
+          objectApiName,
+          referenceIds,
+        })),
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    return sas;
+  }
+
+  /** The ids a read of the target by `Id IN (…)` asks for that `held` still holds. */
+  const heldOf =
+    (held: ReadonlySet<string>) =>
+    async (_org: string, soql: string): Promise<Array<Record<string, unknown>>> => {
+      const match = /FROM \w+ WHERE Id IN \((.*?)\)$/.exec(soql);
+      if (!match) return [];
+      return match[1]
+        .split(', ')
+        .map((quoted) => quoted.slice(1, -1))
+        .filter((id) => held.has(id))
+        .map((id) => ({ Id: id }));
+    };
+
+  it('says per object the updates its writer sent again for a lock: the links of pass 2, the statuses set aside', async () => {
+    // Sent again on their own (`BulkDataWriter.locksAgain`), they were said in
+    // the writer's log alone: the report counted the inserts' only, and a
+    // load whose updates met the lock read as one that never met it.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'ObjA__c',
+          records: [
+            { referenceId: 'ObjA__c-000001', fields: { Name: 'A', B__c: 'ObjB__c-000001' } },
+          ],
+        },
+        {
+          objectApiName: 'ObjB__c',
+          records: [
+            { referenceId: 'ObjB__c-000001', fields: { Name: 'B', A__c: 'ObjA__c-000001' } },
+          ],
+        },
+        {
+          objectApiName: 'Order',
+          records: [{ referenceId: 'Order-000001', fields: { Status: 'ST002' } }],
+        },
+        {
+          objectApiName: 'OrderItem',
+          records: [
+            { referenceId: 'OrderItem-000001', fields: { OrderId: 'Order-000001', Quantity: 2 } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    // The link of pass 2 meets the lock once, the order's status at every send.
+    const updates = new Map<string, number>();
+    let counter = 0;
+    const sobject = (objectApiName: string) => ({
+      create: async (rows: Array<Record<string, unknown>>) =>
+        rows.map(() => ({
+          success: true,
+          id: `a0${objectApiName.length}${String(++counter).padStart(12, '0')}`,
+        })),
+      update: async (rows: Array<Record<string, unknown>>) =>
+        rows.map((row) => {
+          const n = (updates.get(String(row.Id)) ?? 0) + 1;
+          updates.set(String(row.Id), n);
+          if (objectApiName === 'Order' || n === 1) return LOCKED;
+          return { success: true, id: row.Id };
+        }),
+    });
+    const deps = makeDeps({
+      dataset,
+      writer: writerOver(sobject),
+      describes: echoDescribes(dataset),
+      queryImpl: async (_org, soql) =>
+        soql.includes('FROM OrderStatus')
+          ? [
+              { ApiName: 'ST002', StatusCode: 'Activated' },
+              { ApiName: 'ST001', StatusCode: 'Draft' },
+            ]
+          : [],
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(report.pass2).toEqual({ resolved: 1, unresolved: [] });
+    expect(report.statuses.refused).toEqual([
+      expect.objectContaining({ objectApiName: 'Order', referenceId: 'Order-000001' }),
+    ]);
+    expect(report.sentAgainForALock).toEqual([
+      { objectApiName: 'ObjA__c', write: 'update', rows: 1, written: 1, stillLocked: 0 },
+      { objectApiName: 'Order', write: 'update', rows: 1, written: 0, stillLocked: 1 },
+    ]);
+    // Their inserts met no lock.
+    for (const object of report.perObject) expect(object).not.toHaveProperty('sentAgainForALock');
+  });
+
+  it("says per object the records of a reload's purge its writer sent again for a lock, each by the purge's last word on it", async () => {
+    // A record the lock held through its first delete is sent once more when
+    // the rest has gone (`purgeAgain`): what it came to is that answer's.
+    const ids = {
+      'Account-000001': '001000000000001AAA',
+      'Account-000002': '001000000000002AAA',
+      'Contact-000001': '003000000000001AAA',
+    };
+    const sas = await earlierLoad(ids);
+    /** What the target holds of what the earlier load created. */
+    const held = new Set<string>(Object.values(ids));
+    const deletes = new Map<string, number>();
+    let counter = 0;
+    const sobject = (objectApiName: string) => ({
+      create: async (rows: Array<Record<string, unknown>>) =>
+        rows.map(() => ({
+          success: true,
+          id: `${PREFIX[objectApiName]}${String(++counter).padStart(12, '0')}`,
+        })),
+      destroy: async (batch: string[]) =>
+        batch.map((id) => {
+          const n = (deletes.get(id) ?? 0) + 1;
+          deletes.set(id, n);
+          // The contact meets the lock once; the first account through its
+          // first delete and its three sends again; the second at every send.
+          const locked =
+            id === ids['Account-000002'] ||
+            (id === ids['Account-000001'] && n <= 4) ||
+            (id === ids['Contact-000001'] && n === 1);
+          if (locked) return LOCKED;
+          held.delete(id);
+          return { success: true, id };
+        }),
+    });
+    const dataset = accounts();
+    const deps = makeDeps({ dataset, writer: writerOver(sobject), queryImpl: heldOf(held) });
+    deps.mappingStore = new SasReferenceIdMappingStore(sas, { guard: new SasPathGuard(repoRoot) });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, sasDir: sas }),
+    );
+
+    expect(deletes.get(ids['Account-000001'])).toBe(5);
+    expect(report.purge.deleted).toEqual({ Contact: 1, Account: 1 });
+    expect(report.purge.failures).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', recordId: ids['Account-000002'] }),
+    ]);
+    expect(report.sentAgainForALock).toEqual([
+      { objectApiName: 'Contact', write: 'delete', rows: 1, written: 1, stillLocked: 0 },
+      { objectApiName: 'Account', write: 'delete', rows: 2, written: 1, stillLocked: 1 },
+    ]);
+  });
+
+  it("counts as updates the deactivations of a reload's purge the writer sent again for a lock", async () => {
+    // What the target lets no one delete, the purge deactivates: an update.
+    const earlier = '001000000000001AAA';
+    const sas = await earlierLoad({ 'Account-000001': earlier });
+    const writer = targetWriter([], () => undefined);
+    writer.update = vi.fn(async (_org: string, _object: string, rows: Record<string, unknown>[]) =>
+      rows.map((row): OperationOutcome => ({
+        id: String(row.Id),
+        success: true,
+        errors: [],
+        lockResends: 2,
+      })),
+    );
+    const dataset = accounts();
+    const deps = makeDeps({
+      dataset,
+      writer,
+      config: { undeletableObjects: { Account: 'IsActive__c' } },
+      queryImpl: heldOf(new Set([earlier])),
+    });
+    deps.mappingStore = new SasReferenceIdMappingStore(sas, { guard: new SasPathGuard(repoRoot) });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true, sasDir: sas }),
+    );
+
+    expect(report.purge.deactivated).toEqual({ Account: 1 });
+    expect(report.sentAgainForALock).toEqual([
+      { objectApiName: 'Account', write: 'update', rows: 1, written: 1, stillLocked: 0 },
+    ]);
   });
 });

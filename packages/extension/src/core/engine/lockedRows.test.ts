@@ -279,6 +279,21 @@ describe('lockedRowsLine', () => {
     );
   });
 
+  it('says what the rows a delete sent again became in the words of a delete', () => {
+    // "Written" said of the records a purge deleted read as records it wrote.
+    expect(
+      lockedRowsLine(
+        'record(s)',
+        { refused: 3, sentAgain: 3, written: 2, stillLocked: 1, notSentAgain: 0 },
+        'deleted',
+      ),
+    ).toBe(
+      '3 record(s) refused because the target could not lock a record their write needed ' +
+        '(UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: 2 deleted, ' +
+        '1 still refused for the lock',
+    );
+  });
+
   it('says "once" of a row sent again a single time, and the count of the others', () => {
     expect(stillLockedNote(1)).toMatch(/^sent again once,/);
     expect(stillLockedNote(3)).toMatch(/^sent again 3 times,/);

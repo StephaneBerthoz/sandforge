@@ -13,6 +13,7 @@ import type {
   FrozenLoadResponse,
   FrozenReloadSweep as FrozenReloadSwept,
   FrozenReloadSweepListing,
+  FrozenSentAgainForALock,
   FrozenVerifyVerdict,
   MutedAutomation,
   RunCheckpointInfo,
@@ -72,6 +73,12 @@ const RELOAD_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
 
 /** The requests a reload is refused on: the load, and its preview. */
 const RELOAD_REQUESTS: ReadonlySet<string> = new Set(['frozen:load', 'frozen:load:preview']);
+
+/** What a line of the updates, or of the purge's deletes, sent again for a lock begins with. */
+const LOCK_RESENT_LEAD: Record<FrozenSentAgainForALock['write'], string> = {
+  update: 'frozen.report.sentAgainForALockOf.update',
+  delete: 'frozen.report.sentAgainForALockOf.delete',
+};
 
 /**
  * What the sweeps asked with a reload did, as the error that ended it carries
@@ -643,6 +650,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const lockSentObjects = (loadReport?.perObject ?? []).filter(
     (o) => (o.sentAgainForALock?.rows ?? 0) > 0,
   );
+  // And those of its updates and of its purge's deletes, per object: the
+  // writer's log alone said them, and a load whose pass 2 or purge met the
+  // lock read as one that never met it.
+  const lockSentWrites = (loadReport?.sentAgainForALock ?? []).filter((e) => e.rows > 0);
 
   // What a reload purged of the loads before it, what it left in place, and
   // why the target kept what it would not let go. Shown nowhere, a reload
@@ -1654,8 +1665,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               )}
 
               {/* Per object, the records sent again once the target could not lock a record their
-                  write needed, and what became of them: the writer's log alone said it. */}
-              {lockSentObjects.length > 0 && (
+                  write needed — inserted, updated, or deleted by the purge — and what became of
+                  them: the writer's log alone said it. */}
+              {lockSentObjects.length + lockSentWrites.length > 0 && (
                 <div data-testid="frozen-report-sent-again-for-a-lock">
                   <span className="text-xs font-medium text-text-primary">
                     {t('frozen.report.sentAgainForALock')}
@@ -1667,6 +1679,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                         <SentAgainForALockLine
                           entry={o.sentAgainForALock}
                           testId={`frozen-report-sentAgainForALock-${o.objectApiName}`}
+                        />
+                      </li>
+                    ))}
+                    {lockSentWrites.map((e) => (
+                      <li
+                        key={`${e.write}-${e.objectApiName}`}
+                        className="text-[11px] text-text-secondary"
+                      >
+                        <span className="font-medium text-text-primary">{e.objectApiName}</span>
+                        <SentAgainForALockLine
+                          entry={e}
+                          leadKey={LOCK_RESENT_LEAD[e.write]}
+                          testId={`frozen-report-sentAgainForALock-${e.write}-${e.objectApiName}`}
                         />
                       </li>
                     ))}

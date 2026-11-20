@@ -3436,4 +3436,16 @@ describe('toLoadReportInfo', () => {
     expect(toLoadReportInfo({ ...report, keysLeftEmpty }).keysLeftEmpty).toEqual(keysLeftEmpty);
     expect(toLoadReportInfo(report)).not.toHaveProperty('keysLeftEmpty');
   });
+
+  it('hands the panel per object the updates and the purge deletes sent again for a record lock', () => {
+    const sentAgainForALock = [
+      { objectApiName: 'Order', write: 'update' as const, rows: 2, written: 1, stillLocked: 1 },
+      { objectApiName: 'Account', write: 'delete' as const, rows: 3, written: 3, stillLocked: 0 },
+    ];
+
+    expect(toLoadReportInfo({ ...report, sentAgainForALock }).sentAgainForALock).toEqual(
+      sentAgainForALock,
+    );
+    expect(toLoadReportInfo(report)).not.toHaveProperty('sentAgainForALock');
+  });
 });

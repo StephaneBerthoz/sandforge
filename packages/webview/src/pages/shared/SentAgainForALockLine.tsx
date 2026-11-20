@@ -11,6 +11,12 @@ export interface SentAgainForALockLineProps {
   /** The element it renders as: a list item among the lines of a list. */
   as?: 'li' | 'p';
   className?: string;
+  /**
+   * The key of its first sentence, counting `{{count}}` and `{{written}}`:
+   * the records of an insert by default; a Frozen load's updates and its
+   * purge's deletes say theirs.
+   */
+  leadKey?: string;
 }
 
 /**
@@ -29,12 +35,13 @@ export const SentAgainForALockLine: React.FC<SentAgainForALockLineProps> = ({
   testId,
   as: Element = 'p',
   className,
+  leadKey = 'runResults.sentAgainForALock.lead',
 }) => {
   const { t } = useTranslation();
   if (!entry || entry.rows <= 0) return null;
   const otherwise = Math.max(0, entry.rows - entry.written - entry.stillLocked);
   const parts = [
-    t('runResults.sentAgainForALock.lead', { count: entry.rows, written: entry.written }),
+    t(leadKey, { count: entry.rows, written: entry.written }),
     ...(entry.stillLocked > 0
       ? [t('runResults.sentAgainForALock.stillLocked', { count: entry.stillLocked })]
       : []),

@@ -644,6 +644,26 @@ export interface FrozenPerObjectLoadResult {
   sentAgainForALock?: SentAgainForALock;
 }
 
+/**
+ * Of one object, the records the target refused because it could not lock a
+ * record their write needed, which the writer sent again on their own, of one
+ * kind of write a load makes past its inserts — those of the inserts are on
+ * each object's result ({@link FrozenPerObjectLoadResult.sentAgainForALock}).
+ */
+export interface FrozenSentAgainForALock extends SentAgainForALock {
+  objectApiName: string;
+  /**
+   * `update`: a record the load updated — a link of its pass 2, a status set
+   * aside at insert, the fields of a record the platform wrote, an activity's
+   * relation's flags — or a reload's purge did — a deactivation, an order set
+   * to Draft for its delete and given its status back; each update counted
+   * on its own, `written` the ones the target took. `delete`: a record the
+   * purge deleted, by the purge's last word on it, `written` the ones it
+   * counts purged.
+   */
+  write: 'update' | 'delete';
+}
+
 /** Final load report — every exclusion/adjustment is listed. */
 export interface FrozenLoadReportInfo {
   /**
@@ -709,6 +729,14 @@ export interface FrozenLoadReportInfo {
     perRecord?: FrozenDefaultPerRecord;
   }>;
   perObject: FrozenPerObjectLoadResult[];
+  /**
+   * Per object, the updates and the purge's deletes the target refused
+   * because it could not lock a record their write needed, sent again on
+   * their own, and what became of them, in the order the load met them; those
+   * still refused are among the refusals of their step. Absent when none met
+   * the lock, and from reports written before they were said.
+   */
+  sentAgainForALock?: FrozenSentAgainForALock[];
   pass2: {
     resolved: number;
     unresolved: Array<{

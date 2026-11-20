@@ -70,6 +70,7 @@ import type {
   FrozenReplayRequest,
   FrozenSelectProgress,
   FrozenSelectionStop,
+  FrozenSentAgainForALock,
   FrozenVerifyVerdict,
   OrgType,
   RecordTypeGiven,
@@ -1670,6 +1671,7 @@ export function messageLines(
             }>;
           };
         }>;
+        sentAgainForALock?: FrozenSentAgainForALock[];
         pass2: {
           resolved: number;
           unresolved: Array<{ objectApiName: string; field: string; detail: string }>;
@@ -1856,6 +1858,25 @@ export function messageLines(
       if (kept.length > 0) {
         lines.push('kept by the purge, the platform does not delete them:');
         for (const [objectApiName, count] of kept) lines.push(`  ${objectApiName}: ${count}`);
+      }
+      // The updates — pass 2, the statuses, the purge's — and the purge's
+      // deletes the writer sent again for a lock, per object, as those of
+      // the inserts are said under their object's line: in the writer's log
+      // alone, a load whose updates or purge met the lock read as one that
+      // never met it. Those still refused are among their step's refusals.
+      const lockResent = (r.sentAgainForALock ?? []).flatMap(
+        ({ objectApiName, write, rows, written, stillLocked }) => {
+          const line = lockedRowsLine(
+            write === 'delete' ? 'purge delete(s)' : 'update(s)',
+            { refused: rows, sentAgain: rows, written, stillLocked, notSentAgain: 0 },
+            write === 'delete' ? 'deleted' : 'written',
+          );
+          return line ? [`  ${objectApiName}: ${line}`] : [];
+        },
+      );
+      if (lockResent.length > 0) {
+        lines.push("sent again for a record lock, of the updates and of the purge's deletes:");
+        lines.push(...lockResent);
       }
       // What the target's automation made for each load replaced, swept
       // around the purge as a removal of that load sweeps it.

@@ -6509,6 +6509,12 @@
       "failedReasons": "Warum Datensätze fehlgeschlagen sind",
       "statusCode": "Statuscode",
       "sentAgainForALock": "Wegen einer Datensatzsperre erneut gesendet",
+      "sentAgainForALockOf": {
+        "update_one": "{{count}} Aktualisierung, die die Ziel-Org abgelehnt hat, weil sie einen für ihr Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), ging allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} geschrieben.",
+        "update_other": "{{count}} Aktualisierungen, die die Ziel-Org abgelehnt hat, weil sie einen für ihr Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), gingen allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} geschrieben.",
+        "delete_one": "{{count}} Löschung der Bereinigung, die die Ziel-Org abgelehnt hat, weil sie einen für ihr Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), ging allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} gelöscht.",
+        "delete_other": "{{count}} Löschungen der Bereinigung, die die Ziel-Org abgelehnt hat, weil sie einen für ihr Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), gingen allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} gelöscht."
+      },
       "writtenWithoutFields": {
         "title": "Erneut ohne ein von der Ziel-Org abgelehntes Feld geschrieben",
         "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — einer, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Ladevorgang hat jeden Datensatz ohne diese Felder erneut geschrieben, oder mit dem Wert, den die Auswahllistenregel des Felds festlegt: Der Datensatz ist in der Ziel-Org, ohne den Wert, den das eingefrorene Dataset für diese Felder enthält.",

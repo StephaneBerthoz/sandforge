@@ -1018,6 +1018,10 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       ],
     },
   ],
+  // An update of pass 2 the lock held to its last send, beside the insert's.
+  sentAgainForALock: [
+    { objectApiName: 'Opportunity', write: 'update', rows: 1, written: 0, stillLocked: 1 },
+  ],
   pass2: {
     resolved: 1,
     unresolved: [
@@ -14517,6 +14521,9 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('frozen-report-sentAgainForALock-Opportunity')).toBeVisible({
         timeout: 10_000,
       });
+      await expect(
+        page.getByTestId('frozen-report-sentAgainForALock-update-Opportunity'),
+      ).toBeVisible({ timeout: 10_000 });
       // The report closes on a checkpoint of the org the load filled.
       await expect(page.getByTestId('frozen-report-checkpoint-now')).toContainText(
         `keep ${QA_SANDBOX.alias} as it is now`,

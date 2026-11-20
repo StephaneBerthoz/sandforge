@@ -1341,6 +1341,7 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
     placeholders: report.placeholders,
     requiredDefaults: report.requiredDefaults,
     perObject: report.perObject,
+    ...(report.sentAgainForALock ? { sentAgainForALock: report.sentAgainForALock } : {}),
     pass2: report.pass2,
     personContact: report.personContact,
     statuses: report.statuses,

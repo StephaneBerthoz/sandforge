@@ -1290,6 +1290,62 @@ describe('FrozenPage', () => {
     expect(within(section).getByText('Contact')).toBeDefined();
   });
 
+  it("says per object the updates and the purge's deletes sent again for a record lock, with no insert sent again", async () => {
+    // Said of the inserts alone, a load whose pass 2 or purge met the lock
+    // read as one that never met it: the writer's log alone said them.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Order',
+            fromFiles: 2,
+            inserted: 2,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [],
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: { Account: 3 }, deactivated: {}, failures: [] },
+        sentAgainForALock: [
+          { objectApiName: 'Account', write: 'delete', rows: 3, written: 3, stillLocked: 0 },
+          { objectApiName: 'Order', write: 'update', rows: 2, written: 1, stillLocked: 1 },
+        ],
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    await loadTabShown();
+
+    const section = screen.getByTestId('frozen-report-sent-again-for-a-lock');
+    expect(section.textContent).toContain(en.frozen.report.sentAgainForALock);
+    expect(screen.queryByTestId('frozen-report-sentAgainForALock-Order')).toBeNull();
+    expect(screen.getByTestId('frozen-report-sentAgainForALock-delete-Account').textContent).toBe(
+      '3 deletes of the purge the target org refused because it could not lock a record their ' +
+        'write needed (UNABLE_TO_LOCK_ROW) went again on their own, up to 3 times, waiting longer ' +
+        'each time: 3 deleted.',
+    );
+    expect(screen.getByTestId('frozen-report-sentAgainForALock-update-Order').textContent).toBe(
+      '2 updates the target org refused because it could not lock a record their write needed ' +
+        '(UNABLE_TO_LOCK_ROW) went again on their own, up to 3 times, waiting longer each time: ' +
+        '1 written. 1 still refused for the lock, among the refusals.',
+    );
+    expect(within(section).getByText('Account')).toBeDefined();
+    expect(within(section).getByText('Order')).toBeDefined();
+  });
+
   it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', async () => {
     // A reload whose only errors were in its purge read "Completed with
     // errors" over a report that named none: the purge was counted nowhere.

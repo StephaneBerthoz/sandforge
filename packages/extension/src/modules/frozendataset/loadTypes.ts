@@ -14,6 +14,7 @@ import type {
   FrozenExcludedObject,
   FrozenKeysLeftEmpty,
   FrozenLeftToThePlatform,
+  FrozenSentAgainForALock,
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
   RecordTypeGiven,
@@ -512,6 +513,15 @@ export interface FrozenLoadReport {
     perRecord?: FrozenDefaultPerRecord;
   }>;
   perObject: PerObjectLoadResult[];
+  /**
+   * Per object, the updates — of pass 2, of the statuses, of what the
+   * platform wrote, of a reload's purge — and the purge's deletes the target
+   * refused because it could not lock a record their write needed, which the
+   * writer sent again on their own (`OperationOutcome.lockResends`), and what
+   * became of them, in the order the load met them: see `LockResentWrites`.
+   * Those of the inserts are on `perObject`. Absent when none met the lock.
+   */
+  sentAgainForALock?: FrozenSentAgainForALock[];
   /** Cycle-FK pass 2: resolved vs unresolved targeted updates. `referenceId`
    *  carries the child referenceId, or the real ID when the update failed. */
   pass2: {

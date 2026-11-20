@@ -6509,6 +6509,12 @@
       "failedReasons": "Pourquoi des enregistrements ont échoué",
       "statusCode": "Code de statut",
       "sentAgainForALock": "Renvoyés pour un verrou d'enregistrement",
+      "sentAgainForALockOf": {
+        "update_one": "{{count}} mise à jour que l'org cible a refusée, faute de pouvoir verrouiller un enregistrement dont son écriture avait besoin (UNABLE_TO_LOCK_ROW), est repartie seule, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Écrites : {{written}}.",
+        "update_other": "{{count}} mises à jour que l'org cible a refusées, faute de pouvoir verrouiller un enregistrement dont leur écriture avait besoin (UNABLE_TO_LOCK_ROW), sont reparties seules, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Écrites : {{written}}.",
+        "delete_one": "{{count}} suppression de la purge que l'org cible a refusée, faute de pouvoir verrouiller un enregistrement dont son écriture avait besoin (UNABLE_TO_LOCK_ROW), est repartie seule, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Supprimés : {{written}}.",
+        "delete_other": "{{count}} suppressions de la purge que l'org cible a refusées, faute de pouvoir verrouiller un enregistrement dont leur écriture avait besoin (UNABLE_TO_LOCK_ROW), sont reparties seules, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Supprimés : {{written}}."
+      },
       "writtenWithoutFields": {
         "title": "Écrits de nouveau sans un champ refusé par l'org cible",
         "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, ou une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit. Le chargement a écrit de nouveau chaque enregistrement sans ces champs, ou avec la valeur que déclare la règle de liste de sélection du champ : l'enregistrement est dans l'org cible, sans la valeur que lui donne le jeu de données.",
