@@ -1047,6 +1047,7 @@ export class ExtensionHandlers {
         'org:update',
         'org:open-in-browser',
         'org:cli-status',
+        'org:assign-right',
       ],
       this.orgHandler,
     );

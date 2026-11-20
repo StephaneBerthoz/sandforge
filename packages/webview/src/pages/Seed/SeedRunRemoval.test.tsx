@@ -165,6 +165,27 @@ describe('SeedRunRemoval', () => {
     expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', muteAutomation: true });
   });
 
+  it('offers no mute in the confirmation to a user the org says cannot assign permission sets, says why, and removes unmuted', () => {
+    render(<SeedRunRemoval runId="op-1" />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+    fireEvent.click(screen.getByTestId('seed-removal-remove'));
+    fireEvent.click(screen.getByTestId('seed-removal-mute-toggle'));
+    expect(sentAll('org:assign-right').pop()?.payload).toEqual({ orgId: 'org-dev' });
+
+    answer('org:assign-right', 'org:assign-right:response', {
+      orgId: 'org-dev',
+      cannotAssign: true,
+    });
+
+    expect(screen.queryByTestId('seed-removal-mute-toggle')).toBeNull();
+    expect(screen.getByTestId('seed-removal-mute-no-right').textContent).toMatch(
+      /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SANDBOX/,
+    );
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1' });
+  });
+
   it('says a mute refused on a production org in the interface language', () => {
     render(<SeedRunRemoval runId="op-1" />);
     answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });

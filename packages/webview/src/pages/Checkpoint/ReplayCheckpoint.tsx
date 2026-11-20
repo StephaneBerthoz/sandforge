@@ -512,6 +512,7 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
         <div className="flex flex-col gap-2" data-testid="checkpoint-replay-gates">
           <AutomationMuteBox
             offer="atStart"
+            orgId={targetOrgId}
             checked={muteAutomation}
             onChange={setMuteAutomation}
             org={targetName}

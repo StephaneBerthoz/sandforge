@@ -61,6 +61,7 @@ beforeEach(() => {
     'dataops:empty:undo': idle(),
     'dataops:empty:cancel': idle(),
     'reports:audit': { ...idle(), data: { entries: [] } },
+    'org:assign-right': idle(),
   };
   queried.length = 0;
   setOrg(SANDBOX);
@@ -318,5 +319,30 @@ describe('EmptyPanel', () => {
       runId: RUN_ID,
       fromPage: true,
     });
+  });
+
+  it("offers no Mute in the undo's confirmation to a user the org says cannot assign permission sets, and says why", () => {
+    hooks['dataops:empty:run'] = { ...idle(), data: { operationId: 'r', result: runResultOf() } };
+    hooks['org:assign-right'] = { ...idle(), data: { orgId: 'org-1', cannotAssign: true } };
+    const { rerender } = render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    fireEvent.click(screen.getByTestId('empty-pick-option-Account'));
+    fireEvent.click(screen.getByTestId('empty-objects-preview'));
+    hooks['dataops:empty:preview'] = { ...idle(), data: previewAnswer() };
+    rerender(<EmptyPanel orgId="org-1" orgName="dev" />);
+    fireEvent.click(screen.getByTestId('empty-preview-empty'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    fireEvent.click(screen.getByTestId('empty-result-undo'));
+
+    expect(queried).toContainEqual({
+      type: 'org:assign-right',
+      payload: { orgId: 'org-1' },
+      skip: false,
+    });
+    expect(screen.queryByTestId('empty-act-mute-toggle')).toBeNull();
+    expect(screen.getByTestId('empty-act-mute-no-right')).toHaveTextContent(
+      "Muting isn't offered: it assigns permission sets to the user the run writes as in dev",
+    );
   });
 });

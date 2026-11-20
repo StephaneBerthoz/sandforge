@@ -307,6 +307,7 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
       after={
         <AutomationMuteBox
           offer={offer}
+          orgId={orgId}
           checked={mute.checked}
           onChange={mute.onChange}
           org={org}

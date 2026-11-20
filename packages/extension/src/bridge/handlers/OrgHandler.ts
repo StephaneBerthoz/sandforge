@@ -12,6 +12,7 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
+  orgAssignRightPayloadSchema,
   orgConnectCancelPayloadSchema,
   orgConnectPayloadSchema,
   orgDeviceConnectPayloadSchema,
@@ -24,9 +25,11 @@ import {
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   getConnectionPool,
+  getJsforceConnection,
   sessionConnection,
   withDeadline,
 } from '../../core/connection/ConnectionHelper.js';
+import { cannotAssignPermissionSets } from '../../modules/forge/AutomationMuteLease.js';
 import { typeTarget } from '../../core/precheck/orgKindLive.js';
 import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
 import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
@@ -50,6 +53,7 @@ const ORG_TYPES = new Set([
   'org:update',
   'org:open-in-browser',
   'org:cli-status',
+  'org:assign-right',
 ]);
 
 /** What OrgHandler reaches outside the extension through; tests pass stand-ins. */
@@ -155,6 +159,9 @@ export class OrgHandler implements DomainHandler {
       case 'org:cli-status':
         await this.handleCliStatus(msg);
         return true;
+      case 'org:assign-right':
+        await this.handleAssignRight(msg);
+        return true;
       default:
         return false;
     }
@@ -174,6 +181,40 @@ export class OrgHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'org:cli-status:response', {
       available,
       orgCount,
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Whether the user SandForge writes to the org as may assign permission
+   * sets, asked by a page that offers to mute the target's automation and
+   * reads none of it before the run: offered there to a user who could not,
+   * the box started a run its lease refused, nothing written. One request,
+   * the lease's own statement. An org that would not say, or that could not
+   * be reached, is answered without `cannotAssign`: the box stays, and the
+   * lease asks again as the run starts.
+   */
+  private async handleAssignRight(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(orgAssignRightPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+    let cannotAssign = false;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      cannotAssign = await cannotAssignPermissionSets({
+        query: async (soql) => conn.query<Record<string, unknown>>(soql),
+      });
+    } catch (err: unknown) {
+      this.deps.log(`[WARN] org:assign-right: not read: ${extractErrorMessage(err)}`);
+    }
+    const response = buildResponse(this.deps, msg, 'org:assign-right:response', {
+      orgId: parsed.orgId,
+      ...(cannotAssign ? { cannotAssign: true as const } : {}),
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);

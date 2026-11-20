@@ -867,6 +867,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({
           )}
           <AutomationMuteBox
             offer="atStart"
+            orgId={orgId}
             checked={actBoxes.mute}
             onChange={(checked) => setActBoxes((current) => ({ ...current, mute: checked }))}
             org={orgName}

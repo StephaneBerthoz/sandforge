@@ -8,7 +8,9 @@ import type {
   MutedAutomationSilenced,
   MutedAutomationStillRunning,
   MuteStillRunsWhy,
+  OrgAssignRightResponse,
 } from '@sandforge/shared';
+import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { cn } from '../../theme';
 import { listWords } from '../../utils/listWords';
 import { muteOffered, muteRefusedForRight, type MuteOffer } from '../../utils/muteOffer';
@@ -104,6 +106,23 @@ export const MuteEntryList: React.FC<MuteEntryListProps> = ({
   );
 };
 
+/**
+ * Whether the org said the user the run writes as may assign no permission
+ * set, asked of `orgId` (`org:assign-right`, the run's lease's own statement):
+ * false until it says, for an answer about another org, and where it would
+ * not say — the lease then asks again as the run starts. Nothing is asked
+ * without an org.
+ */
+function useCannotAssign(orgId: string | undefined): boolean {
+  const asked = orgId !== undefined && orgId !== '';
+  const right = useBridgeQuery<OrgAssignRightResponse['payload']>(
+    'org:assign-right',
+    { orgId: orgId ?? '' },
+    { skip: !asked },
+  );
+  return asked && right.data?.orgId === orgId && right.data.cannotAssign === true;
+}
+
 /** Props for {@link AutomationMuteBox}. */
 export interface AutomationMuteBoxProps {
   /**
@@ -111,6 +130,14 @@ export interface AutomationMuteBoxProps {
    * read found nothing the org's own bypass silences: no box then.
    */
   offer: MuteOffer | null | undefined;
+  /**
+   * The org the run writes to, by its id in this machine's registry, for an
+   * offer read as the run starts: the box asks it whether the user the run
+   * writes as may assign permission sets. Pages that read nothing offered
+   * the box to a user who could not, and the run they started was refused.
+   * Nothing is asked without it, nor of a plan, whose read said it.
+   */
+  orgId?: string | undefined;
   /** Whether the run is to mute: off unless ticked. */
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -143,8 +170,9 @@ export interface AutomationMuteBoxProps {
  * silences — the permission sets it would assign to the user the run writes
  * as, for the run alone, what they silence, and what still runs and why. On a
  * page that reads none, the run's gate reads it as the run starts, and the
- * box says so. To a user the read found unable to assign those sets, no box:
- * a line says why, and who can give the right.
+ * box says so; the org is asked alone whether its user may assign permission
+ * sets. To a user the read, or that question, found unable to assign them,
+ * no box: a line says why, and who can give the right.
  *
  * A box no longer offered — read again, the org found nothing to silence — is
  * unticked: a run sent from a page that showed no box mutes nothing. A
@@ -154,6 +182,7 @@ export interface AutomationMuteBoxProps {
  */
 export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   offer,
+  orgId,
   checked,
   onChange,
   org,
@@ -166,19 +195,25 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   const detailsId = useId();
   const foldedId = useId();
   const [open, setOpen] = useState(false);
-  const offered = muteOffered(offer);
+  const refusedAtStart = useCannotAssign(offer === 'atStart' ? orgId : undefined);
+  const offered = muteOffered(offer) && !refusedAtStart;
   useEffect(() => {
     if (!readOnly && !offered && checked) onChange(false);
   }, [readOnly, offered, checked, onChange]);
   // No box for a user the read found unable to assign the sets: the run it
   // started was refused, nothing written. Said in its place, with the way on.
-  if (muteRefusedForRight(offer)) {
+  // Read as the run starts, what it would assign is not known: the line says
+  // what muting does that the user cannot, not that the run would be refused,
+  // which a user already holding every set it needs is not.
+  if (muteRefusedForRight(offer) || refusedAtStart) {
     return (
       <p
         data-testid={`${testId}-no-right`}
         className={`text-[11px] text-text-secondary ${className ?? ''}`}
       >
-        {t('automationMute.box.noRight', { org })}
+        {refusedAtStart
+          ? t('automationMute.box.noRightAtStart', { org })
+          : t('automationMute.box.noRight', { org })}
       </p>
     );
   }

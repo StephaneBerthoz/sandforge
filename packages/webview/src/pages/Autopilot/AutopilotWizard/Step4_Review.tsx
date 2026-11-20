@@ -231,6 +231,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
       {mute && (
         <AutomationMuteBox
           offer="atStart"
+          orgId={targetOrgId}
           checked={mute.checked}
           onChange={mute.onChange}
           org={mute.org}

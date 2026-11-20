@@ -330,6 +330,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
       {preview && mute && (
         <AutomationMuteBox
           offer="atStart"
+          orgId={targetOrgId}
           checked={mute.checked}
           onChange={mute.onChange}
           org={mute.org}

@@ -168,6 +168,11 @@ const openedConfigAnswer = vi.hoisted(() => ({
 }));
 /** What the page last asked `sync:describe-global` with. */
 const objectsAsked = vi.hoisted(() => ({ value: undefined as unknown }));
+/** What `org:assign-right` answers the box beside Run, and what it was asked with. */
+const assignRightAnswer = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+  asked: [] as unknown[],
+}));
 
 /*
  * The tabs past Sync come in chunks of their own (syncPanels.test.tsx); here
@@ -217,6 +222,10 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
         error: null,
         refetch: vi.fn(),
       };
+    }
+    if (type === 'org:assign-right') {
+      assignRightAnswer.asked.push(payload);
+      return { data: assignRightAnswer.value, loading: false, error: null, refetch: vi.fn() };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -305,6 +314,8 @@ describe('SyncPage', () => {
       filterType: null,
     });
     draft.value = null;
+    assignRightAnswer.value = null;
+    assignRightAnswer.asked = [];
     mockObjectsRefetch.mockClear();
     mockFieldsMutate.mockClear();
     mockFieldsReset.mockClear();
@@ -833,6 +844,31 @@ describe('SyncPage', () => {
       fireEvent.click(screen.getByTestId('sync-run'));
 
       expect(mockExecuteMutate.mock.calls[0][0]).toMatchObject({ muteAutomation: true });
+    });
+
+    it('offers beside Run no mute to a user the target says cannot assign permission sets, says why, and runs unmuted', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      assignRightAnswer.value = { orgId: 'org-2', cannotAssign: true };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(assignRightAnswer.asked).toContainEqual({ orgId: 'org-2' });
+      expect(screen.queryByTestId('sync-mute-toggle')).toBeNull();
+      expect(screen.getByTestId('sync-mute-no-right').textContent).toMatch(
+        /^Muting isn't offered: it assigns permission sets to the user the run writes as in /,
+      );
+      fireEvent.click(screen.getByTestId('sync-run'));
+      expect(mockExecuteMutate.mock.calls[0][0]).not.toHaveProperty('muteAutomation');
     });
 
     it('offers beside Run the checkpoint first, off, says Simulate has its cost, and asks it once ticked', () => {

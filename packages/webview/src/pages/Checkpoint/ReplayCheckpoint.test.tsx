@@ -416,6 +416,28 @@ describe('ReplayCheckpoint', () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it('offers no mute into a target whose user the org says cannot assign permission sets, says why, and replays unmuted', () => {
+    renderReplay();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-mute-toggle'));
+    expect(host.current?.lastPayload('org:assign-right')).toEqual({ orgId: 'org-dev' });
+
+    act(() =>
+      host.current?.answer('org:assign-right', 'org:assign-right:response', {
+        orgId: 'org-dev',
+        cannotAssign: true,
+      }),
+    );
+
+    expect(screen.queryByTestId('checkpoint-replay-mute-toggle')).toBeNull();
+    expect(screen.getByTestId('checkpoint-replay-mute-no-right').textContent).toMatch(
+      /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SB/,
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-replay-simulate'));
+    answerPlan();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-run'));
+    expect(host.current?.lastPayload('frozen:load')).not.toHaveProperty('muteAutomation');
+  });
+
   it('says a refusal for real data in its own words, and the box that lifts it masks the next simulation', () => {
     renderReplay(refreshedEntry(sandboxCheckpoint(5120)));
     // Ticked for the person: unticked, the extension refuses it.

@@ -1,9 +1,48 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { MutePlan } from '@sandforge/shared';
+import type { BaseMessage, MutePlan } from '@sandforge/shared';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
+
+/** What the box sends the host, and the host's answers to it. */
+const host = vi.hoisted(() => ({ posted: [] as Array<{ payload: BaseMessage }> }));
+
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (message: unknown) => host.posted.push(message as { payload: BaseMessage }),
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
 import { AutomationMuteBox } from './AutomationMuteBox';
+
+/** The requests of `type` the box sent, oldest first. */
+function sent(type: string): Array<BaseMessage & { payload?: Record<string, unknown> }> {
+  return host.posted
+    .map((envelope) => envelope.payload as BaseMessage & { payload?: Record<string, unknown> })
+    .filter((message) => message.type === type);
+}
+
+/** Answer the last `org:assign-right` the box sent, as the host does. */
+function answerRight(payload: { orgId: string; cannotAssign?: true }): void {
+  const asked = sent('org:assign-right').at(-1);
+  if (!asked) throw new Error('The box asked no org:assign-right');
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: `host-${Date.now()}`,
+          type: 'org:assign-right:response',
+          timestamp: Date.now(),
+          correlationId: asked.id,
+          payload,
+        },
+      }),
+    );
+  });
+}
 
 /** A plan as `mutePlanOf` makes one: a flow and a workflow rule silenced, a trigger and a package's flow left. */
 const PLAN: MutePlan = {
@@ -33,6 +72,10 @@ const PLAN: MutePlan = {
 const NOTHING: MutePlan = { assign: [], silenced: [], stillRuns: PLAN.stillRuns };
 
 describe('AutomationMuteBox', () => {
+  beforeEach(() => {
+    host.posted.length = 0;
+  });
+
   afterEach(async () => {
     await act(async () => {
       await i18n.changeLanguage('en');
@@ -390,6 +433,7 @@ describe('AutomationMuteBox', () => {
     render(
       <AutomationMuteBox
         offer="atStart"
+        orgId="org-dev"
         checked={false}
         onChange={vi.fn()}
         org="dev-sandbox"
@@ -404,6 +448,124 @@ describe('AutomationMuteBox', () => {
     expect(screen.getByTestId('mute').textContent).toContain(
       'Refused on a production org and for a user who can',
     );
+  });
+
+  describe('on a page that reads none of the target', () => {
+    it('asks whether the user the run writes as may assign permission sets, and offers no box to one who may not, says why, and unticks it', () => {
+      const onChange = vi.fn();
+      render(
+        <AutomationMuteBox
+          offer="atStart"
+          orgId="org-dev"
+          checked
+          onChange={onChange}
+          org="dev"
+          testId="mute"
+        />,
+      );
+      expect(sent('org:assign-right').map((message) => message.payload)).toEqual([
+        { orgId: 'org-dev' },
+      ]);
+      // Until the org says, the box stays: the run's lease asks again as it starts.
+      expect(screen.queryByTestId('mute-toggle')).not.toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+
+      answerRight({ orgId: 'org-dev', cannotAssign: true });
+
+      expect(screen.queryByRole('checkbox')).toBeNull();
+      expect(screen.queryByTestId('mute-at-start')).toBeNull();
+      expect(screen.getByTestId('mute-no-right').textContent).toBe(
+        "Muting isn't offered: it assigns permission sets to the user the run writes as in dev, " +
+          "for the run alone, and that user can't assign them (that takes Assign Permission Sets " +
+          'or Manage Users). An admin can give that user Assign Permission Sets.',
+      );
+      expect(onChange).toHaveBeenCalledWith(false);
+    });
+
+    it('keeps the box for a user who may, and for an answer about another org', () => {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <AutomationMuteBox
+          offer="atStart"
+          orgId="org-dev"
+          checked
+          onChange={onChange}
+          org="dev"
+          testId="mute"
+        />,
+      );
+      answerRight({ orgId: 'org-dev' });
+      expect(screen.queryByTestId('mute-toggle')).not.toBeNull();
+
+      // The run now writes to another org: its own user is asked, and the
+      // answer about the first is not taken for it.
+      rerender(
+        <AutomationMuteBox
+          offer="atStart"
+          orgId="org-uat"
+          checked
+          onChange={onChange}
+          org="uat"
+          testId="mute"
+        />,
+      );
+      expect(sent('org:assign-right').at(-1)?.payload).toEqual({ orgId: 'org-uat' });
+      answerRight({ orgId: 'org-dev', cannotAssign: true });
+      expect(screen.queryByTestId('mute-toggle')).not.toBeNull();
+      expect(screen.queryByTestId('mute-no-right')).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('asks nothing where the page planned the mute from its own read, nor before the run has an org', () => {
+      const { rerender } = render(
+        <AutomationMuteBox
+          offer={PLAN}
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+        />,
+      );
+      rerender(
+        <AutomationMuteBox
+          offer="atStart"
+          orgId={undefined}
+          checked={false}
+          onChange={vi.fn()}
+          org=""
+          testId="mute"
+        />,
+      );
+
+      expect(sent('org:assign-right')).toEqual([]);
+      expect(screen.queryByTestId('mute-toggle')).not.toBeNull();
+    });
+
+    it('says why in the interface language', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr);
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      render(
+        <AutomationMuteBox
+          offer="atStart"
+          orgId="org-dev"
+          checked={false}
+          onChange={vi.fn()}
+          org="dev"
+          testId="mute"
+        />,
+      );
+      answerRight({ orgId: 'org-dev', cannotAssign: true });
+
+      expect(screen.getByTestId('mute-no-right').textContent).toBe(
+        "Rendre muettes les automatisations n'est pas proposé : cela attribue des ensembles " +
+          "d'autorisations à l'utilisateur sous lequel l'exécution écrit dans dev, pour cette " +
+          'exécution seulement, et cet utilisateur ne peut pas en attribuer (il faut Attribuer ' +
+          "des ensembles d'autorisations ou Gérer les utilisateurs). Un administrateur peut " +
+          "donner à cet utilisateur Attribuer des ensembles d'autorisations.",
+      );
+    });
   });
 
   it('names several permission sets as the language lists them', () => {

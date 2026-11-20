@@ -9327,6 +9327,7 @@
       "atStart": "O que ela silencia é lido de {{org}} quando a execução começa: os conjuntos de permissões que contêm os bypasses testados pelos fluxos, processos e regras de fluxo de trabalho são atribuídos ao usuário com o qual a execução grava, só para esta execução, e retirados ao final. A execução então pergunta só pelo que roda mesmo assim, e o resultado diz o que foi silenciado.",
       "never": "Nada é desativado e nenhum outro usuário é afetado. Recusado em uma org de produção e para um usuário que não pode atribuir conjuntos de permissões: a execução então não grava nada.",
       "noRight": "Silenciar não é oferecido: o usuário com o qual a execução grava em {{org}} não pode atribuir conjuntos de permissões (é preciso Atribuir conjuntos de permissões ou Gerenciar usuários), então uma execução que silencie seria recusada. Um administrador pode dar a esse usuário Atribuir conjuntos de permissões.",
+      "noRightAtStart": "Silenciar não é oferecido: silenciar atribui conjuntos de permissões ao usuário com o qual a execução grava em {{org}}, só para esta execução, e esse usuário não pode atribuí-los (é preciso Atribuir conjuntos de permissões ou Gerenciar usuários). Um administrador pode dar a esse usuário Atribuir conjuntos de permissões.",
       "alsoLifts": "Também libera, pelo que mais esses conjuntos concedem:"
     },
     "bypass": "pelo bypass {{permission}}",

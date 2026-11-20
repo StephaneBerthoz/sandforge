@@ -136,6 +136,31 @@ export interface OrgCliStatusResponse extends BaseMessage {
   payload: { available: boolean; orgCount: number };
 }
 
+/**
+ * Asked by a page that offers to mute the target's automation and reads none
+ * of it before the run (Sync's Run, Quick Sync, Autopilot's review, a Frozen
+ * load, a Seed run's removal, a checkpoint's Undo and replay, an emptying's
+ * resume): whether the user SandForge writes to the org as may assign
+ * permission sets, which muting does for the run. Such a page offered the box
+ * to a user who could not, and the run it started was refused, nothing
+ * written. Read by the statement the run's lease asks it with.
+ */
+export interface OrgAssignRightRequest extends BaseMessage {
+  type: 'org:assign-right';
+  payload: { orgId: string };
+}
+
+/**
+ * `cannotAssign` when the org said its user has neither Assign Permission
+ * Sets nor Manage Users. An org that would not say, or could not be reached,
+ * is answered without it: the box is offered, and the run's lease asks again
+ * as it starts and says why it refuses.
+ */
+export interface OrgAssignRightResponse extends BaseMessage {
+  type: 'org:assign-right:response';
+  payload: { orgId: string; cannotAssign?: true };
+}
+
 /** Notification that an org's connection status has changed */
 export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';

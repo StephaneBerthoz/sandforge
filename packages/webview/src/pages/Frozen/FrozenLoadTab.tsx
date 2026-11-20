@@ -865,6 +865,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             {effectiveTarget !== '' && (
               <AutomationMuteBox
                 offer="atStart"
+                orgId={effectiveTarget}
                 checked={muteAutomation}
                 onChange={setMuteAutomation}
                 org={targetName}

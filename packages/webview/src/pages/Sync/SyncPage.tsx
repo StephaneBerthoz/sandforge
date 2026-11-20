@@ -1121,6 +1121,7 @@ export const SyncPage: React.FC = () => {
                         the box says what muting does, the results what it did. */}
                     <AutomationMuteBox
                       offer="atStart"
+                      orgId={targetOrgId}
                       checked={muteAutomation}
                       onChange={setMuteAutomation}
                       org={targetOrgName}

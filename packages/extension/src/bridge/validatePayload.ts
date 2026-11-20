@@ -2213,6 +2213,8 @@ export const orgSelectPayloadSchema = z.object({ orgId: orgIdSchema });
  * refused, never read.
  */
 export const orgOpenInBrowserPayloadSchema = z.object({ orgId: orgIdSchema }).strict();
+/** `org:assign-right`: the org whose user is asked whether it may assign permission sets. */
+export const orgAssignRightPayloadSchema = z.object({ orgId: orgIdSchema }).strict();
 /**
  * What the org edit dialog saves. The colour is one of the dialog's hex
  * swatches and each tag a trimmed word; the bounds keep a crafted payload from

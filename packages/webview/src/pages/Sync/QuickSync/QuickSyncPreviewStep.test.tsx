@@ -260,6 +260,30 @@ describe('QuickSyncPreviewStep', () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
+  it('offers beside Go no mute to a user the target says cannot assign permission sets, says why, and unticks it', () => {
+    mockPostMessage.mockClear();
+    const onChange = vi.fn();
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        targetOrgId="org-tgt"
+        mute={{ checked: true, onChange, org: 'DEV-SANDBOX' }}
+      />,
+    );
+    expect(sentAll('org:assign-right').pop()?.payload).toEqual({ orgId: 'org-tgt' });
+
+    answer('org:assign-right', 'org:assign-right:response', {
+      orgId: 'org-tgt',
+      cannotAssign: true,
+    });
+
+    expect(screen.queryByTestId('quick-sync-mute-toggle')).toBeNull();
+    expect(screen.getByTestId('quick-sync-mute-no-right').textContent).toMatch(
+      /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SANDBOX/,
+    );
+    expect(onChange).toHaveBeenCalledWith(false);
+  });
+
   it('offers beside Go the checkpoint first, its cost said in the question', () => {
     useOrgStore.setState({ orgs: [org('org-tgt', 'DEV-SANDBOX')] });
     const onChange = vi.fn();

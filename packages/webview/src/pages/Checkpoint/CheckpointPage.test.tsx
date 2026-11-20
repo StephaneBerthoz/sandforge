@@ -655,6 +655,44 @@ describe('CheckpointPage', () => {
       });
     });
 
+    it('offers no mute on the undo to a user the org says cannot assign permission sets, says why, and undoes unmuted', () => {
+      render(<CheckpointPage />);
+      answerList([
+        listEntry(
+          readyCheckpoint({
+            lastRewind: {
+              rewindId: 'rw-20261022-100000-beef',
+              endedAt: '2026-10-22T12:05:00.000Z',
+              undoUntil: '2026-11-06T10:05:00.000Z',
+            },
+          }),
+          { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+        ),
+      ]);
+      fireEvent.click(screen.getByTestId(`checkpoint-undo-${ID}`));
+      fireEvent.click(screen.getByTestId('checkpoint-undo-mute-toggle'));
+      expect(host.current?.lastPayload('org:assign-right')).toEqual({ orgId: 'org-dev' });
+
+      act(() =>
+        host.current?.answer('org:assign-right', 'org:assign-right:response', {
+          orgId: 'org-dev',
+          cannotAssign: true,
+        }),
+      );
+
+      expect(screen.queryByTestId('checkpoint-undo-mute-toggle')).toBeNull();
+      expect(screen.getByTestId('checkpoint-undo-mute-no-right').textContent).toMatch(
+        /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SB/,
+      );
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        fromPage: true,
+        checkpointId: ID,
+        rewindId: 'rw-20261022-100000-beef',
+        acceptAutomation: false,
+      });
+    });
+
     it('says a rewind whose mute the org refused in the interface language, nothing written', async () => {
       render(<CheckpointPage />);
       answerList();

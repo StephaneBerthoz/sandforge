@@ -427,6 +427,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
             mute silences is read as the removal starts, and its result says it. */}
         <AutomationMuteBox
           offer="atStart"
+          orgId={kept.targetOrgId}
           checked={muteAutomation}
           onChange={setMuteAutomation}
           org={org}

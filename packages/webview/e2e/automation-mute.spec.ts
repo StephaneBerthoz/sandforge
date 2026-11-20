@@ -205,7 +205,11 @@ class Extension {
 }
 
 /** Open the Checkpoints page on the dev sandbox under a host theme, its checkpoint listed. */
-async function openCheckpoints(page: Page, theme: Theme): Promise<Extension> {
+async function openCheckpoints(
+  page: Page,
+  theme: Theme,
+  listed: CheckpointListEntry[] = [listEntry(CHECKPOINT)],
+): Promise<Extension> {
   const bridge = new MockBridge();
   await bridge.setup(page);
   await paintHostTheme(page, theme);
@@ -216,7 +220,7 @@ async function openCheckpoints(page: Page, theme: Theme): Promise<Extension> {
   await bridge.seedOrgs(MOCK_ORGS);
   const host = new Extension(bridge);
   await expect(page.getByTestId('checkpoint-page')).toBeVisible();
-  await host.answer('checkpoint:list', { checkpoints: [listEntry(CHECKPOINT)] });
+  await host.answer('checkpoint:list', { checkpoints: listed });
   return host;
 }
 
@@ -400,6 +404,49 @@ for (const theme of THEMES) {
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-run-error"]');
       await host.relist([listEntry(CHECKPOINT)]);
+    });
+
+    test('offers no mute on an undo to a user the org says cannot assign permission sets, and says why', async ({
+      page,
+    }) => {
+      // The undo reads nothing of the org before it starts: the box asked
+      // the right alone, by the run's lease's own statement.
+      const rewound = readyCheckpoint({
+        checkpointId: CHECKPOINT.checkpointId,
+        name: CHECKPOINT.name,
+        lastRewind: {
+          rewindId: 'rw-done',
+          endedAt: '2026-10-22T12:05:00.000Z',
+          undoUntil: '2099-11-06T10:05:00.000Z',
+        },
+      });
+      const host = await openCheckpoints(page, theme, [
+        listEntry(rewound, { undo: { rewindId: 'rw-done', until: '2099-11-06T10:05:00.000Z' } }),
+      ]);
+      await page.setViewportSize({ width: 1280, height: 1400 });
+      await page.getByTestId(`checkpoint-undo-${CHECKPOINT.checkpointId}`).click();
+      await expect(page.getByTestId('checkpoint-undo-mute-toggle')).toBeVisible();
+      const asked = await host.answer('org:assign-right', {
+        orgId: CHECKPOINT_ORG.id,
+        cannotAssign: true,
+      });
+      expect(asked.payload).toEqual({ orgId: CHECKPOINT_ORG.id });
+
+      await expect(page.getByTestId('checkpoint-undo-mute-no-right')).toHaveText(
+        `Muting isn't offered: it assigns permission sets to the user the run writes as in ${ORG}, ` +
+          "for the run alone, and that user can't assign them (that takes Assign Permission Sets " +
+          'or Manage Users). An admin can give that user Assign Permission Sets.',
+      );
+      await expect(page.getByTestId('checkpoint-undo-mute-toggle')).toHaveCount(0);
+      await expectReadable(page, theme, '[data-testid="checkpoint-undo-mute-no-right"]');
+      await confirmTyped(page, ORG);
+      const undo = await host.asked('checkpoint:undo');
+      expect(undo.payload).toEqual({
+        checkpointId: CHECKPOINT.checkpointId,
+        rewindId: 'rw-done',
+        fromPage: true,
+        acceptAutomation: false,
+      });
     });
   });
 }

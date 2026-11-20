@@ -29,6 +29,39 @@ const mutate = vi.fn();
 /** The options each request was asked with, by its type. */
 const askedWith: Record<string, unknown> = {};
 
+/** What the tab's mute boxes ask the host directly: whether the target's user may assign permission sets. */
+const posted = vi.hoisted(() => [] as Array<{ payload: { id: string; type: string } }>);
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (message: unknown) =>
+      posted.push(message as { payload: { id: string; type: string } }),
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
+/** Answer every `org:assign-right` the tab sent, as the host does each. */
+function answerRights(payload: { orgId: string; cannotAssign?: true }): void {
+  const asked = posted.filter((envelope) => envelope.payload.type === 'org:assign-right');
+  if (asked.length === 0) throw new Error('The tab asked no org:assign-right');
+  act(() => {
+    for (const envelope of asked) {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: `host-${envelope.payload.id}`,
+            type: 'org:assign-right:response',
+            timestamp: Date.now(),
+            correlationId: envelope.payload.id,
+            payload,
+          },
+        }),
+      );
+    }
+  });
+}
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string, options?: unknown) => ({
     ...((askedWith[requestType] = options), {}),
@@ -145,6 +178,7 @@ describe('FrozenLoadTab', () => {
   beforeEach(() => {
     for (const key of Object.keys(answers)) delete answers[key];
     mutate.mockReset();
+    posted.length = 0;
     useNotificationStore.setState({ notifications: [] });
     // A target picked: the tab offers none until one is (see "the target").
     useFrozenStore.setState({
@@ -328,6 +362,30 @@ describe('FrozenLoadTab', () => {
         // as a dry run with --mute-automation does, to say what still sends.
         ['frozen:load:preview', { targetOrgId: 'org-dev', muteAutomation: true }],
         ['frozen:load', { targetOrgId: 'org-dev', muteAutomation: true }],
+      ]);
+    });
+
+    it('offers beside Load no mute to a user the target says cannot assign permission sets, says why, and loads unmuted', () => {
+      useFrozenStore.setState({ status: WITH_COVERAGE([]) });
+      render(tab());
+      fireEvent.click(screen.getByTestId('frozen-load-mute-toggle'));
+      expect(
+        posted
+          .filter((envelope) => envelope.payload.type === 'org:assign-right')
+          .map((envelope) => (envelope.payload as { payload?: unknown }).payload),
+      ).toEqual([{ orgId: 'org-dev' }]);
+
+      answerRights({ orgId: 'org-dev', cannotAssign: true });
+
+      expect(screen.queryByTestId('frozen-load-mute-toggle')).toBeNull();
+      expect(screen.getByTestId('frozen-load-mute-no-right').textContent).toMatch(
+        /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SANDBOX/,
+      );
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load:preview', { targetOrgId: 'org-dev' }],
+        ['frozen:load', { targetOrgId: 'org-dev' }],
       ]);
     });
 
@@ -1687,6 +1745,34 @@ describe('FrozenLoadTab', () => {
         expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
           ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
         ]);
+      });
+
+      it('offers in the confirmation no mute read as the load starts to a user the target says cannot assign permission sets, and says why', () => {
+        // The purge's read found nothing a bypass silences: the box is the
+        // one beside Load, read as the load starts, and asks the right alone.
+        useFrozenStore.setState({
+          status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+        });
+        answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+        answers['frozen:remove:automation'] = {
+          data: {
+            loadedAt: LOADED_AT,
+            automation: { ...AUTOMATION, objects: [] },
+            steps: { setToDraft: [], delete: ['Account'] },
+          },
+        };
+        render(tab());
+        fireEvent.click(screen.getByTestId('frozen-load-reload'));
+        fireEvent.click(screen.getByTestId('frozen-load-run'));
+        const dialog = within(screen.getByRole('dialog'));
+        expect(dialog.getByTestId('frozen-removal-automation-mute-toggle')).toBeTruthy();
+
+        answerRights({ orgId: 'org-dev', cannotAssign: true });
+
+        expect(dialog.queryByTestId('frozen-removal-automation-mute-toggle')).toBeNull();
+        expect(dialog.getByTestId('frozen-removal-automation-mute-no-right').textContent).toMatch(
+          /^Muting isn't offered: it assigns permission sets to the user the run writes as in DEV-SANDBOX/,
+        );
       });
 
       describe('and as a sweep ticked with it deletes what the automation made for the loads it replaces', () => {

@@ -426,6 +426,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           silences is read as the undo starts, and its result says it. */}
       <AutomationMuteBox
         offer="atStart"
+        orgId={org.id}
         checked={undoMutesAutomation}
         onChange={setUndoMutesAutomation}
         org={orgName}

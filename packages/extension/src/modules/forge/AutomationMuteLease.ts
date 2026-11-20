@@ -768,6 +768,23 @@ export function mayAssignPermissionSets(row: Record<string, unknown> | undefined
   );
 }
 
+/**
+ * Whether the org said the user a connection is may assign no permission set,
+ * asked alone by a page that offers to mute and reads nothing of the target
+ * before its run: such a page offered the box to that user, and the run it
+ * started was refused. An org that would not say, or answered no row, is not
+ * taken for one that refuses: the lease asks again as the run starts, and
+ * says why it refuses.
+ */
+export async function cannotAssignPermissionSets(org: Pick<MuteOrg, 'query'>): Promise<boolean> {
+  try {
+    const [row] = (await org.query(ASSIGN_RIGHT_SOQL)).records;
+    return row !== undefined && !mayAssignPermissionSets(row);
+  } catch {
+    return false;
+  }
+}
+
 /** Why the user cannot assign permission sets, or nothing when they can. */
 async function assignRightRefusal(org: MuteOrg): Promise<string | undefined> {
   let row: Record<string, unknown> | undefined;

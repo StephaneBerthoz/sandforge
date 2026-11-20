@@ -1,10 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import i18n from '../../../i18n';
 import fr from '../../../i18n/locales/fr.json';
 import ja from '../../../i18n/locales/ja.json';
+
+/** What the review asks the host directly: whether the target's user may assign permission sets. */
+const posted = vi.hoisted(
+  () => [] as Array<{ payload: { id: string; type: string; payload?: unknown } }>,
+);
+vi.mock('../../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (message: unknown) =>
+      posted.push(message as { payload: { id: string; type: string; payload?: unknown } }),
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
 import { Step4Review } from './Step4_Review';
 import { uiLocale } from '../../../utils/formatters';
 import { useOrgStore } from '../../../stores/useOrgStore';
@@ -94,6 +109,34 @@ describe('Step4_Review', () => {
     );
     fireEvent.click(toggle);
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('offers no mute to a user the target says cannot assign permission sets, says why, and unticks it', () => {
+    posted.length = 0;
+    const onChange = vi.fn();
+    render(<Step4Review {...defaultProps} mute={{ checked: true, onChange, org: 'QA-SANDBOX' }} />);
+    const asked = posted.filter((envelope) => envelope.payload.type === 'org:assign-right');
+    expect(asked.map((envelope) => envelope.payload.payload)).toEqual([{ orgId: 'org-2' }]);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-right',
+            type: 'org:assign-right:response',
+            timestamp: Date.now(),
+            correlationId: asked[0]?.payload.id,
+            payload: { orgId: 'org-2', cannotAssign: true },
+          },
+        }),
+      );
+    });
+
+    expect(screen.queryByTestId('step4-mute-toggle')).toBeNull();
+    expect(screen.getByTestId('step4-mute-no-right').textContent).toMatch(
+      /^Muting isn't offered: it assigns permission sets to the user the run writes as in QA-SANDBOX/,
+    );
+    expect(onChange).toHaveBeenCalledWith(false);
   });
 
   it('keeps the compliance framework behind an Advanced disclosure, which picks another', () => {

@@ -60,6 +60,9 @@ const OrgMessages = [
   // Whether the CLI answers and how many orgs it holds, asked as Organizations opens.
   msg('org:cli-status'),
   msg('org:cli-status:response'),
+  // Whether the org's user may assign permission sets, for a mute no read planned.
+  msg('org:assign-right'),
+  msg('org:assign-right:response'),
   msg('org:statusChanged'),
   msg('org:selected'),
   msg('org:error'),

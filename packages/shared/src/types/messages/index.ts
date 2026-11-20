@@ -45,6 +45,8 @@ import type {
   OrgOpenInBrowserResponse,
   OrgCliStatusRequest,
   OrgCliStatusResponse,
+  OrgAssignRightRequest,
+  OrgAssignRightResponse,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
@@ -678,6 +680,7 @@ export type WebViewToExtensionMessage =
   | OrgConnectCancelRequest
   | OrgOpenInBrowserRequest
   | OrgCliStatusRequest
+  | OrgAssignRightRequest
   // Seed
   | SeedExecuteRequest
   | SeedRemovalInfoRequest
@@ -958,6 +961,7 @@ export type ExtensionToWebViewMessage =
   | OrgDeviceCodeMessage
   | OrgOpenInBrowserResponse
   | OrgCliStatusResponse
+  | OrgAssignRightResponse
   // Bridge control
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage
