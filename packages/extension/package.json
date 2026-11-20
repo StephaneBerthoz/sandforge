@@ -307,11 +307,6 @@
           "default": true,
           "description": "%config.showWhatsNew.description%"
         },
-        "sandforge.openOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.openOnStartup.description%"
-        },
         "sandforge.telemetry": {
           "type": "boolean",
           "default": false,

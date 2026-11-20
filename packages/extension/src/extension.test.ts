@@ -311,6 +311,7 @@ describe('extension', () => {
         })),
       },
       onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidChangeVisibility: vi.fn(() => ({ dispose: vi.fn() })),
     };
     provider.resolveWebviewView(mockView as never, undefined, undefined);
 
@@ -355,6 +356,7 @@ describe('extension', () => {
           })),
         },
         onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidChangeVisibility: vi.fn(() => ({ dispose: vi.fn() })),
       };
       provider.resolveWebviewView(mockView as never, undefined, undefined);
 
@@ -402,6 +404,7 @@ describe('extension', () => {
           })),
         },
         onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidChangeVisibility: vi.fn(() => ({ dispose: vi.fn() })),
       };
       provider.resolveWebviewView(mockView as never, undefined, undefined);
       const lines = () =>
@@ -582,9 +585,9 @@ describe('extension', () => {
     );
   });
 
-  it('shows the side panel, then opens Home, as a window starts after a version ran before', async () => {
+  it('shows the side panel, then opens Home, as a window starts after an update', async () => {
     const context = createContext();
-    await context.globalState.update('sandforge.lastVersion', '1.2.5');
+    await context.globalState.update('sandforge.lastVersion', '1.1.0');
     activate(context);
     const vscode = await import('vscode');
 
@@ -600,18 +603,30 @@ describe('extension', () => {
     expect(registeredCommands.has('sandforge.openHome')).toBe(true);
   });
 
-  it('opens nothing as a window starts when sandforge.openOnStartup is off', async () => {
+  it('opens nothing as a window starts on the version that ran last', async () => {
+    const context = createContext();
+    await context.globalState.update('sandforge.lastVersion', '1.2.5');
+    activate(context);
+    const vscode = await import('vscode');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const ran = vi.mocked(vscode.commands.executeCommand).mock.calls.map(([command]) => command);
+    expect(ran).not.toContain('workbench.view.extension.sandforge');
+    expect(ran).not.toContain('sandforge.openHome');
+  });
+
+  it("opens nothing as a window starts after an update when What's New is turned off", async () => {
     const vscode = await import('vscode');
     vi.mocked(vscode.workspace.getConfiguration).mockImplementation(
       () =>
         ({
           get: vi.fn((key: string, fallback: unknown) =>
-            key === 'openOnStartup' ? false : fallback,
+            key === 'showWhatsNew' ? false : fallback,
           ),
         }) as unknown as ReturnType<typeof vscode.workspace.getConfiguration>,
     );
     const context = createContext();
-    await context.globalState.update('sandforge.lastVersion', '1.2.5');
+    await context.globalState.update('sandforge.lastVersion', '1.1.0');
     try {
       activate(context);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -752,6 +767,7 @@ describe('what an activation costs before a SandForge view opens', () => {
           })),
         },
         onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidChangeVisibility: vi.fn(() => ({ dispose: vi.fn() })),
       } as never,
       undefined,
       undefined,

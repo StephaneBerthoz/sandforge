@@ -3611,8 +3611,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
-      "open1840": "SandForge öffnet die Startseite",
-      "open1840Desc": "Beim Start eines Fensters öffnet SandForge seine Seitenleiste und die Startseite, nach einem Update mit den Neuigkeiten. Sie können das in den VS-Code-Einstellungen abschalten.",
+      "open1840": "Die Startseite öffnet mit SandForge",
+      "open1840Desc": "Ein Klick auf das SandForge-Symbol öffnet die Startseite neben der Seitenleiste. Nach einem Update auf eine neue Version öffnet das erste Fenster beide, mit den Neuigkeiten.",
       "deploy1840": "Bereitstellen über die Befehlszeile",
       "deploy1840Desc": "Die Befehlszeile stellt einen Vergleich bereit wie Aus Diff bereitstellen: zuerst im Ziel geprüft, gesendet, sobald Sie dessen Alias eingeben, nie in die Produktion.",
       "adminCopy1840": "Für den Administrator des Ziels kopieren",

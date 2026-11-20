@@ -3611,8 +3611,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
-      "open1840": "SandForge opens on Home",
-      "open1840Desc": "As a window starts, SandForge opens its side panel and Home, with What's New after an upgrade. You can turn it off in VS Code's settings.",
+      "open1840": "Home opens with SandForge",
+      "open1840Desc": "A click on SandForge's icon opens Home beside the side panel. After an update to a new version, the first window opens both, on What's New.",
       "deploy1840": "Deploy from the command line",
       "deploy1840Desc": "The command line deploys a comparison as Deploy from Diff does: checked in the target first, sent once you type its alias, never to production.",
       "adminCopy1840": "Copy for the target's admin",

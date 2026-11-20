@@ -3611,8 +3611,8 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
-      "open1840": "O SandForge abre no Início",
-      "open1840Desc": "Ao iniciar uma janela, o SandForge abre o painel lateral e o Início, com as novidades após uma atualização. Você pode desativar isso nas configurações do VS Code.",
+      "open1840": "O Início abre com o SandForge",
+      "open1840Desc": "Um clique no ícone do SandForge abre o Início ao lado do painel lateral. Após atualizar para uma nova versão, a primeira janela abre os dois, com as novidades.",
       "deploy1840": "Implantar pela linha de comando",
       "deploy1840Desc": "A linha de comando implanta uma comparação como Implantar a partir do diff: verificada antes no destino, enviada após digitar o alias, nunca em produção.",
       "adminCopy1840": "Copiar para o administrador do destino",

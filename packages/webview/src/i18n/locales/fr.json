@@ -3611,8 +3611,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
-      "open1840": "SandForge s'ouvre sur l'Accueil",
-      "open1840Desc": "Au démarrage d'une fenêtre, SandForge ouvre son panneau latéral et l'Accueil, avec les nouveautés après une mise à jour. Vous pouvez le couper dans les réglages de VS Code.",
+      "open1840": "L'Accueil s'ouvre avec SandForge",
+      "open1840Desc": "Un clic sur l'icône de SandForge ouvre l'Accueil à côté du panneau latéral. Après une mise à jour vers une nouvelle version, la première fenêtre ouvre les deux, sur les nouveautés.",
       "deploy1840": "Déployer depuis la ligne de commande",
       "deploy1840Desc": "La ligne de commande déploie une comparaison comme Déployer depuis le diff : vérifiée d'abord dans la cible, envoyée une fois son alias tapé, jamais en production.",
       "adminCopy1840": "Copier pour l'administrateur de la cible",

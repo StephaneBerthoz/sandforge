@@ -157,6 +157,8 @@ export class SidebarViewProvider {
   private brokerRegistration?: vscode.Disposable;
   /** Subscription to the current view's `onDidDispose`. */
   private viewDisposeSubscription?: vscode.Disposable;
+  /** Subscription to the current view's `onDidChangeVisibility`. */
+  private viewVisibilitySubscription?: vscode.Disposable;
   /**
    * The line under Checkpoints last read for each org, with when its read
    * began. Kept across views: the view is recreated at every reveal.
@@ -207,6 +209,11 @@ export class SidebarViewProvider {
      * hero leads with: told with the org list, and again at each change.
      */
     private afterRefreshSource?: SidebarAfterRefreshSource,
+    /**
+     * Told each time the view is shown, resolved or made visible again: a
+     * click on SandForge's icon opens Home beside the launcher.
+     */
+    private onShown?: () => void,
   ) {
     this.afterRefreshSubscription = afterRefreshSource?.onDidChange(() => this.tellAfterRefresh());
   }
@@ -345,6 +352,14 @@ export class SidebarViewProvider {
         }
       }
     });
+
+    // VS Code resolves the view again when it is shown after being hidden,
+    // or keeps it and says it is visible again: either is a showing.
+    this.viewVisibilitySubscription?.dispose();
+    this.viewVisibilitySubscription = webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) this.onShown?.();
+    });
+    this.onShown?.();
   }
 
   /** Post a message to the sidebar webview (if visible). */
@@ -465,6 +480,8 @@ export class SidebarViewProvider {
     this.brokerRegistration = undefined;
     this.viewDisposeSubscription?.dispose();
     this.viewDisposeSubscription = undefined;
+    this.viewVisibilitySubscription?.dispose();
+    this.viewVisibilitySubscription = undefined;
     if (!disposedView || this.view === disposedView) {
       this.view = undefined;
     }

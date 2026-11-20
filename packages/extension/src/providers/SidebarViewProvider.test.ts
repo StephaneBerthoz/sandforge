@@ -27,6 +27,7 @@ describe('SidebarViewProvider', () => {
   let mockWebviewView: Record<string, unknown>;
   let messageHandler: ((msg: Record<string, unknown>) => void) | undefined;
   let disposeHandler: (() => void) | undefined;
+  let visibilityHandler: (() => void) | undefined;
 
   function createMockView(): Record<string, unknown> {
     const webview = {
@@ -46,6 +47,11 @@ describe('SidebarViewProvider', () => {
         disposeHandler = handler;
         return { dispose: vi.fn() };
       }),
+      visible: true,
+      onDidChangeVisibility: vi.fn((handler: () => void) => {
+        visibilityHandler = handler;
+        return { dispose: vi.fn() };
+      }),
     };
   }
 
@@ -53,6 +59,7 @@ describe('SidebarViewProvider', () => {
     vi.clearAllMocks();
     messageHandler = undefined;
     disposeHandler = undefined;
+    visibilityHandler = undefined;
 
     mockWebviewView = createMockView();
     mockWebview = mockWebviewView.webview as Record<string, unknown>;
@@ -261,6 +268,52 @@ describe('SidebarViewProvider', () => {
 
   it('has correct static viewType', () => {
     expect(SidebarViewProvider.viewType).toBe('sandforge.sidebarView');
+  });
+
+  describe('each time the view is shown', () => {
+    function withShown(onShown: () => void): SidebarViewProvider {
+      return new SidebarViewProvider(
+        extensionUri,
+        uriJoinPath,
+        executeCommand,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        onShown,
+      );
+    }
+
+    it('says so as it resolves, and again when it is made visible, never when it is hidden', () => {
+      const onShown = vi.fn();
+      withShown(onShown).resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      expect(onShown).toHaveBeenCalledTimes(1);
+
+      mockWebviewView.visible = false;
+      visibilityHandler!();
+      expect(onShown).toHaveBeenCalledTimes(1);
+
+      mockWebviewView.visible = true;
+      visibilityHandler!();
+      expect(onShown).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops listening to a view once it is disposed', () => {
+      const onShown = vi.fn();
+      withShown(onShown).resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      const subscription = vi.mocked(
+        mockWebviewView.onDidChangeVisibility as (h: () => void) => { dispose: () => void },
+      ).mock.results[0]!.value as { dispose: ReturnType<typeof vi.fn> };
+
+      disposeHandler!();
+      expect(subscription.dispose).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('broker registration (outbound-only)', () => {

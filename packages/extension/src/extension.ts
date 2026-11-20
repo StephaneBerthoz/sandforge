@@ -51,7 +51,7 @@ import {
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
-import { openOnStartup } from './composition/startupOpen';
+import { bringsWhatsNew, homeOnSidePanelShown, openOnStartup } from './composition/startupOpen';
 import { LANDING_COMMAND } from './composition/moduleCommands';
 import { panelTitleOf } from './composition/panelTitles';
 import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
@@ -596,6 +596,13 @@ export function activate(context: vscode.ExtensionContext): void {
       orgIds: () => orgManager.getAllOrgs().map((org) => org.id),
       onRefreshDetected: (listener) => handlers.sandboxRefreshes.onRefreshDetected(listener),
     }),
+    // A click on SandForge's icon opens Home beside the launcher; the side
+    // panel VS Code restores with the window does not.
+    homeOnSidePanelShown({
+      now: () => Date.now(),
+      executeCommand: (command) => vscode.commands.executeCommand(command),
+      log,
+    }),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,
@@ -769,11 +776,14 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => performanceTracker.dispose() },
   );
 
-  // 14. The side panel and Home, shown as the window starts, once every
-  // command above is registered.
+  // 14. The side panel and Home, shown as a window starts after an update,
+  // once every command above is registered; the side panel alone after install.
+  const runningVersion = (context.extension.packageJSON as { version?: string }).version ?? '0.0.0';
   void openOnStartup({
-    wanted: () => services.getSandforgeSetting('openOnStartup', true),
+    whatsNewWanted: () =>
+      vscode.workspace.getConfiguration('sandforge').get<boolean>('showWhatsNew', true),
     isFirstLaunch: () => onboardingService.isFirstLaunch(),
+    isUpdate: () => bringsWhatsNew(onboardingService.lastSeenVersion(), runningVersion),
     executeCommand: (command) => vscode.commands.executeCommand(command),
     log,
   });
