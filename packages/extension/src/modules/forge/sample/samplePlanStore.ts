@@ -158,6 +158,28 @@ export class SamplePlanError extends Error {
   }
 }
 
+/**
+ * A sweep that could not remove every plan past its day (`sweepSamplePlans`):
+ * it went on past those it could not, and says which, with the ones it did
+ * remove. Its message names the first few it left and why the first was left.
+ */
+export class SamplePlanSweepError extends Error {
+  constructor(
+    /** The folders removed, as `sweepSamplePlans` returns them. */
+    readonly removed: readonly string[],
+    /** The folders past their day it could not remove. */
+    readonly left: readonly string[],
+    cause: unknown,
+  ) {
+    const named =
+      left.length > 3
+        ? `${left.slice(0, 3).join(', ')} and ${left.length - 3} more`
+        : left.join(', ');
+    super(`${named}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'SamplePlanSweepError';
+  }
+}
+
 // ─── Where plans are ─────────────────────────────────────────────────────────
 
 /** The folder of dry runs' plans under `storagePath`. */
@@ -749,6 +771,11 @@ export async function removeSamplePlan(dir: string): Promise<void> {
  * production's, kept no longer than a run may take them up. The plan a run
  * keeps beside its journal is not one of them: it goes with the journal.
  *
+ * An entry it cannot date or remove does not keep it from the others: one
+ * that is gone as it is read — another window's sweep took it, or a link
+ * leads nowhere — is passed over; one it could not remove is said once the
+ * others are swept ({@link SamplePlanSweepError}).
+ *
  * @returns The names of the folders removed: of a plan, the fingerprint of
  *   the setup it was drawn for.
  */
@@ -762,21 +789,30 @@ export async function sweepSamplePlans(storagePath: string, now: Date): Promise<
     throw error;
   }
   const removed: string[] = [];
+  const left: string[] = [];
+  let firstCause: unknown;
   for (const name of names) {
     const dir = join(root, name);
-    let drawnAt: number;
     try {
-      const manifest = manifestSchema.parse(
-        JSON.parse(await readFile(join(dir, MANIFEST), 'utf8')),
-      );
-      drawnAt = Date.parse(manifest.drawnAt);
-    } catch {
-      // Half written, or no longer read as a plan: by when it was last written.
-      drawnAt = (await stat(dir)).mtimeMs;
+      let drawnAt: number;
+      try {
+        const manifest = manifestSchema.parse(
+          JSON.parse(await readFile(join(dir, MANIFEST), 'utf8')),
+        );
+        drawnAt = Date.parse(manifest.drawnAt);
+      } catch {
+        // Half written, or no longer read as a plan: by when it was last written.
+        drawnAt = (await stat(dir)).mtimeMs;
+      }
+      if (now.getTime() - drawnAt < SAMPLE_PLAN_MAX_AGE_MS) continue;
+      await rm(dir, { recursive: true, force: true });
+      removed.push(name);
+    } catch (error: unknown) {
+      if (isMissing(error)) continue;
+      left.push(name);
+      firstCause ??= error;
     }
-    if (now.getTime() - drawnAt < SAMPLE_PLAN_MAX_AGE_MS) continue;
-    await rm(dir, { recursive: true, force: true });
-    removed.push(name);
   }
+  if (left.length > 0) throw new SamplePlanSweepError(removed, left, firstCause);
   return removed;
 }

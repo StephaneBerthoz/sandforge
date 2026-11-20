@@ -1,5 +1,14 @@
 import path from 'node:path';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -1068,6 +1077,38 @@ describe('forge:execute of a sample of the whole org', () => {
       });
       expect(lastAnswer().result.sample).toMatchObject({ drawnBy: 'run', drawnAgain: 'tooOld' });
     });
+
+    // Windows keeps no POSIX modes, and the owner of every file is root's to remove.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'has the run of a setup whose plan went say so, when a plan beside it could not be removed',
+      async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+        await simulate();
+        // Past its day too, and its files cannot be unlinked: another user's run made it.
+        const stuck = path.join(storage, 'forge-samples', 'stuck');
+        mkdirSync(stuck, { recursive: true });
+        writeFileSync(path.join(stuck, 'sample.json'), '{}');
+        const drawn = new Date('2026-11-13T08:00:00.000Z');
+        utimesSync(stuck, drawn, drawn);
+        chmodSync(stuck, 0o500);
+        try {
+          vi.setSystemTime(new Date('2026-11-15T08:30:00.000Z'));
+          openWindow();
+          await handler.sweepSimulationPlans();
+
+          expect(readdirSync(path.join(storage, 'forge-samples'))).toEqual(['stuck']);
+          await execute();
+
+          expect(lastAnswer().result.sample).toMatchObject({
+            drawnBy: 'run',
+            drawnAgain: 'tooOld',
+          });
+        } finally {
+          chmodSync(stuck, 0o700);
+        }
+      },
+    );
 
     it('keeps the plan of a run that ended with records refused, days after it, for its Retry to write', async () => {
       vi.useFakeTimers({ toFake: ['Date'] });

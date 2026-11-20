@@ -1,10 +1,12 @@
 import {
   appendFile,
+  chmod,
   mkdtemp,
   readFile,
   readdir,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
@@ -16,6 +18,7 @@ import {
   SAMPLE_PLAN_MAX_AGE_MS,
   SamplePlan,
   SamplePlanError,
+  SamplePlanSweepError,
   adoptSamplePlan,
   copySamplePlan,
   copySamplePlanTo,
@@ -575,6 +578,58 @@ describe('the plan a run takes up', () => {
     expect(await readdir(samplesDirOf(storage))).toEqual(['new']);
     expect(await sweepSamplePlans(join(storage, 'nowhere'), now)).toEqual([]);
   });
+
+  // An entry the sweep could not date stopped it, and the plans after it,
+  // which hold a production's ids, stayed for as long as the entry did.
+  // Windows makes no link without the right to, and keeps no POSIX modes.
+  it.skipIf(process.platform === 'win32')(
+    'goes past an entry it cannot date, a link to nothing among them, and sweeps the plans beside it',
+    async () => {
+      const now = new Date('2026-11-14T15:00:00.000Z');
+      const dayAgo = new Date(now.getTime() - SAMPLE_PLAN_MAX_AGE_MS);
+      for (const name of ['old', 'older']) {
+        await keepSamplePlan(dryRunPlanDirOf(storage, name), planOf({ drawnAt: dayAgo }));
+      }
+      await symlink(join(storage, 'nowhere'), join(samplesDirOf(storage), 'gone'));
+
+      expect((await sweepSamplePlans(storage, now)).sort()).toEqual(['old', 'older']);
+      // Not a plan, and nothing to date it by: left as it is.
+      expect(await readdir(samplesDirOf(storage))).toEqual(['gone']);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'removes every other plan past its day when one cannot be, then names the one it could not, and the ones it removed',
+    async () => {
+      const now = new Date('2026-11-14T15:00:00.000Z');
+      const dayAgo = new Date(now.getTime() - SAMPLE_PLAN_MAX_AGE_MS);
+      for (const name of ['stuck', 'old', 'older']) {
+        await keepSamplePlan(dryRunPlanDirOf(storage, name), planOf({ drawnAt: dayAgo }));
+      }
+      await keepSamplePlan(
+        dryRunPlanDirOf(storage, 'new'),
+        planOf({ drawnAt: new Date(now.getTime() - 60_000) }),
+      );
+      const stuck = dryRunPlanDirOf(storage, 'stuck');
+      // Its files cannot be unlinked: as a folder another user's run made.
+      await chmod(stuck, 0o500);
+      try {
+        const failed = await sweepSamplePlans(storage, now).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+        expect(failed).toBeInstanceOf(SamplePlanSweepError);
+        const sweep = failed as SamplePlanSweepError;
+        expect(sweep.left).toEqual(['stuck']);
+        expect([...sweep.removed].sort()).toEqual(['old', 'older']);
+        expect(sweep.message).toMatch(/^stuck: EACCES/);
+        expect((await readdir(samplesDirOf(storage))).sort()).toEqual(['new', 'stuck']);
+      } finally {
+        await chmod(stuck, 0o700);
+      }
+    },
+  );
 
   it('leaves the plan a run keeps beside its journal, whatever its age: its Retry and its resume read it', async () => {
     const now = new Date('2026-11-14T15:00:00.000Z');

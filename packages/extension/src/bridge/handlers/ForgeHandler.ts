@@ -307,6 +307,7 @@ import { automationRoomOf, type RoomPerRecord } from '../../modules/forge/fitBud
 import {
   SamplePlan,
   SamplePlanError,
+  SamplePlanSweepError,
   adoptSamplePlan,
   copySamplePlan,
   dryRunPlanDirOf,
@@ -5484,8 +5485,12 @@ export class ForgeHandler implements DomainHandler {
     try {
       for (const name of await sweepSamplePlans(storagePath, now)) this.samplePlansSwept.add(name);
     } catch (err: unknown) {
+      // The sweep went on past the plans it could not remove: those it did went all the same.
+      if (err instanceof SamplePlanSweepError) {
+        for (const name of err.removed) this.samplePlansSwept.add(name);
+      }
       logger.warn(
-        `Forge sample: the plans of past simulations were not swept (${extractErrorMessage(err)})`,
+        `Forge sample: the plans of past simulations were not all swept (${extractErrorMessage(err)})`,
       );
     }
   }
