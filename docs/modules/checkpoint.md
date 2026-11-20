@@ -559,8 +559,10 @@ is not read, and is left as it is; what another user deleted since stays in the 
 named; undo takes back the user's own rewind alone. A checkpoint that keeps custom settings
 needs Customize Application too: View All Custom Settings reads them, never writes them.
 A checkpoint holds the records' values as the org held them, personal data among them,
-unencrypted, in files only you can read (on Windows: in your user profile). Expired checkpoints
-are deleted as any command starts, each named.
+unencrypted, in files only you can read; on Windows, which keeps no such modes, as private as
+their folder: your user profile for the default store, the folder itself for a --store or a
+SANDFORGE_JOURNAL_DIR outside it. Expired checkpoints are deleted as any command starts,
+each named.
 list and delete read this machine alone and never contact the org. An org's checkpoints are the
 ones taken under its alias or username, and the others kept of the same Organization Id.
 export never writes a checkpoint unencrypted: AES-256-GCM, under a key of 52 letters and digits

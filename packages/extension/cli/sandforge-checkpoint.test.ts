@@ -504,6 +504,13 @@ describe('parseArgs', () => {
       "A checkpoint holds the records' values as the org held them, personal data among them,\nunencrypted, in files only you can read",
     );
     expect(stdout).not.toMatch(/\bin clear\b/);
+    // Windows keeps no POSIX modes: a store there is as private as its folder,
+    // the user profile only for the default one.
+    expect(stdout).not.toContain('(on Windows: in your user profile)');
+    expect(stdout.replace(/\s+/g, ' ')).toContain(
+      'on Windows, which keeps no such modes, as private as their folder: your user profile for ' +
+        'the default store, the folder itself for a --store or a SANDFORGE_JOURNAL_DIR outside it.',
+    );
   });
 });
 
