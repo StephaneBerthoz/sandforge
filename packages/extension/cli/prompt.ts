@@ -84,9 +84,17 @@ export async function confirm(
   return answer !== undefined && /^y(es)?$/i.test(answer);
 }
 
-/** Ask for a word to be typed, and hand back what was; nothing when the terminal closed. */
-export async function typed(question: string, streams = terminal()): Promise<string> {
-  return (await answerOf(question, streams)) ?? '';
+/**
+ * Ask for a word to be typed, and hand back what was; nothing when the
+ * terminal closed, or once a stop `stopped` says came while it waited: the
+ * caller, which stopped, tells that from a word typed wrong.
+ */
+export async function typed(
+  question: string,
+  streams = terminal(),
+  stopped?: AbortSignal,
+): Promise<string> {
+  return (await answerOf(question, streams, stopped)) ?? '';
 }
 
 /** What ends, takes back or gives up a secret typed in raw mode. */

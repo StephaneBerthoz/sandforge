@@ -63,6 +63,7 @@ import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { DONE_EXIT, endWith, FAILED_EXIT, PARTIAL_EXIT } from './exitCodes.js';
 import { nameOf } from './invocation.js';
 import { NO_TERMINAL_EXIT, typed, type PromptStreams } from './prompt.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { productionTargetRefusal } from './targetKind.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import type { InfraServices } from '../src/bridge/handlers/HandlerTypes.js';
@@ -127,7 +128,9 @@ validated, with the same tests. A deployment is all or nothing: the target
 rolls a failed one back. It deletes nothing from the target, and the audit
 trail of the store records it. A production target, or one that cannot be
 told from one, is refused before anything is sent to either org, --dry-run
-included; no flag lifts it.
+included; no flag lifts it. A Ctrl-C, a SIGTERM or a SIGHUP stops the wait,
+not the org: the run says what it sent, names the validation or the
+deployment the target runs, which goes on there, and exits 130, 143 or 129.
 
 Exit codes: 0 every request was answered, every validation succeeded and,
 with --deploy, the deployment succeeded (a diff is read, whatever it found,
@@ -137,7 +140,8 @@ was refused or was not answered in time; 2 a bad command line, or --deploy
 with no terminal to type the alias on and no --yes; 3 a validation or a
 deployment came back with no success, a component error or a failed test (a
 deployment rolled back leaves nothing in the target), or --fail-on-drift and
-a diff found differences.
+a diff found differences; 130, 143, 129 --deploy stopped by a Ctrl-C, a
+SIGTERM or a SIGHUP.
 `;
 
 /**
@@ -803,19 +807,25 @@ const PROGRESS_WORDS: Readonly<Record<string, string>> = {
 /**
  * The progress of the request `following` names, as it comes, a line each
  * time it moves: a deployment that runs the target's tests takes minutes,
- * which the line spent saying nothing.
+ * which the line spent saying nothing. It keeps the id the target gave the
+ * deployment of that request, once its progress named it.
  */
 export function progressLines(log: (line: string) => void): {
   onPost: (message: PostedMessage) => void;
   follow: (requestId: string | undefined) => void;
+  /** The deployment the target runs for the request followed, once named. */
+  deployId: () => string | undefined;
 } {
   let following: string | undefined;
   let last = '';
+  let deployId: string | undefined;
   return {
     follow: (requestId) => {
       following = requestId;
       last = '';
+      deployId = undefined;
     },
+    deployId: () => deployId,
     onPost: (message) => {
       if (message.type !== 'operation:progress' || following === undefined) return;
       const p = (message.payload ?? {}) as {
@@ -823,9 +833,12 @@ export function progressLines(log: (line: string) => void): {
         currentStep?: unknown;
         processedRecords?: unknown;
         totalRecords?: unknown;
+        deployId?: unknown;
       };
+      if (p.operationId !== following) return;
+      if (typeof p.deployId === 'string') deployId = p.deployId;
       const words = typeof p.currentStep === 'string' ? PROGRESS_WORDS[p.currentStep] : undefined;
-      if (p.operationId !== following || words === undefined) return;
+      if (words === undefined) return;
       const line = words
         .replace('{done}', String(p.processedRecords ?? 0))
         .replace('{total}', String(p.totalRecords ?? 0));
@@ -966,7 +979,8 @@ function validated(answer: PanelAnswer): DeploymentReport | undefined {
 /**
  * How a run with --deploy ended, as its JSON names it: `rolled-back`, the
  * target refused the deployment and kept nothing of it; `deployment-unsettled`,
- * no report came back, and the request's answer says why.
+ * no report came back, and the request's answer says why; `interrupted`, a
+ * stop signal ended the wait, and `stoppedDuring` says where.
  */
 type DeployOutcome =
   | 'dry-run'
@@ -974,7 +988,8 @@ type DeployOutcome =
   | 'declined'
   | 'deployed'
   | 'rolled-back'
-  | 'deployment-unsettled';
+  | 'deployment-unsettled'
+  | 'interrupted';
 
 /** What a run with --deploy is handed. */
 interface DeployRun {
@@ -1058,23 +1073,112 @@ async function deployFromLine(run: DeployRun): Promise<void> {
     return;
   }
 
+  // A Metadata API deployment goes on in the target once it is sent, and no
+  // stop calls it back. A Ctrl-C, a SIGTERM or a SIGHUP ended the process at
+  // once: nothing said what it had sent, nor the id Setup › Deployment Status
+  // follows it by. Each now ends the wait, the run says both and exits with
+  // the stop's code; a second ends the process at once.
+  const stop = new AbortController();
+  let stoppedBy: StopSignal | undefined;
+  const release = onStopSignal((signal) => {
+    stoppedBy = signal;
+    process.stderr.write(
+      `\ninterrupted: the run stops waiting on ${args.target} and says what it sent there ` +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    stop.abort();
+  });
+  const stopped = (during: StoppedDuring, line: string, ids: Record<string, string>): void => {
+    log(line);
+    answerJson('interrupted', { stoppedDuring: during, ...ids });
+    process.exitCode = stopExitCode(stoppedBy ?? 'SIGINT');
+  };
+  try {
+    await validateThenDeploy(run, { results, answerJson, stop: stop.signal, stopped });
+  } finally {
+    release();
+  }
+}
+
+/** Where a stop found a run with --deploy, as its JSON names it. */
+type StoppedDuring = 'validation' | 'confirmation' | 'deployment';
+
+/** What the two requests of a run with --deploy are handed, beside the run. */
+interface DeploySteps {
+  /** The answers, in order, for the JSON. */
+  results: Array<{ op: Sent; answer: PanelAnswer }>;
+  answerJson: (outcome: DeployOutcome, ids?: Record<string, string>) => void;
+  /** Aborted by a stop signal: the wait ends, the org's run goes on. */
+  stop: AbortSignal;
+  /** Say where the stop found the run and what of it goes on, and end on the stop's code. */
+  stopped: (during: StoppedDuring, line: string, ids: Record<string, string>) => void;
+}
+
+/**
+ * What `request` comes back with, or nothing once `stop` aborts the wait: the
+ * request is not called back, and what it started in an org goes on there.
+ */
+function untilStopped(
+  request: Promise<PanelAnswer>,
+  stop: AbortSignal,
+): Promise<PanelAnswer | undefined> {
+  if (stop.aborted) return Promise.resolve(undefined);
+  return new Promise((resolve, reject) => {
+    const onStop = (): void => resolve(undefined);
+    stop.addEventListener('abort', onStop, { once: true });
+    request.then(
+      (answer) => {
+        stop.removeEventListener('abort', onStop);
+        resolve(answer);
+      },
+      (err: unknown) => {
+        stop.removeEventListener('abort', onStop);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
+/** The validation, then, once its alias is typed or --yes given, the deployment of what it validated. */
+async function validateThenDeploy(run: DeployRun, steps: DeploySteps): Promise<void> {
+  const { args, deploy, host, target, log } = run;
+  const { results, answerJson, stop, stopped } = steps;
+  const theComponents = deploy.components.length === 1 ? 'the component' : 'the components';
+
   // What DeployPanel sends: the components, the level, and the names only
   // for the level that runs named tests.
   const validationRequest = `cli-validate-${randomUUID()}`;
   run.progress.follow(validationRequest);
-  const validation = await host.request({
-    id: validationRequest,
-    type: 'compare:validate-deployment',
-    payload: {
-      sourceOrgId: run.source.id,
-      targetOrgId: target.id,
-      components: deploy.components,
-      testLevel: deploy.testLevel,
-      ...(deploy.testLevel === 'RunSpecifiedTests' ? { runTests: deploy.runTests } : {}),
-    },
-    timeoutMs: PAGE_VALIDATE_TIMEOUT_MS,
-  });
+  const validation = await untilStopped(
+    host.request({
+      id: validationRequest,
+      type: 'compare:validate-deployment',
+      payload: {
+        sourceOrgId: run.source.id,
+        targetOrgId: target.id,
+        components: deploy.components,
+        testLevel: deploy.testLevel,
+        ...(deploy.testLevel === 'RunSpecifiedTests' ? { runTests: deploy.runTests } : {}),
+      },
+      timeoutMs: PAGE_VALIDATE_TIMEOUT_MS,
+    }),
+    stop,
+  );
+  const validating = run.progress.deployId();
   run.progress.follow(undefined);
+  if (validation === undefined) {
+    stopped(
+      'validation',
+      validating !== undefined
+        ? `  stopped while ${args.target} validated ${theComponents} as ${validating}: nothing ` +
+            `was deployed to ${args.target}. The validation goes on there check-only and keeps ` +
+            'nothing; Setup › Deployment Status lists it.'
+        : `  stopped before ${args.target} gave the validation an id: nothing was deployed to ` +
+            `${args.target}, and a validation, check-only, keeps nothing there.`,
+      validating !== undefined ? { validationId: validating } : {},
+    );
+    return;
+  }
   results.push({ op: 'validate-deployment', answer: validation });
   for (const line of describeAnswer('validate-deployment', validation, '--deploy')) log(line);
   const report = validated(validation);
@@ -1097,7 +1201,16 @@ async function deployFromLine(run: DeployRun): Promise<void> {
           `${args.target}, with the same tests, and ${args.target} keeps them.`),
   );
   if (!deploy.yes) {
-    const answer = await typed(`Type ${args.target} to deploy it:`, run.terminal);
+    const answer = await typed(`Type ${args.target} to deploy it:`, run.terminal, stop);
+    if (stop.aborted) {
+      stopped(
+        'confirmation',
+        `  stopped at the question: nothing was deployed to ${args.target}. The validation ` +
+          `${validationId} changed nothing there.`,
+        { validationId },
+      );
+      return;
+    }
     if (answer !== args.target) {
       log(
         `Nothing was deployed: what was typed is not ${args.target}. The validation ` +
@@ -1111,13 +1224,32 @@ async function deployFromLine(run: DeployRun): Promise<void> {
 
   const deploymentRequest = `cli-deploy-${randomUUID()}`;
   run.progress.follow(deploymentRequest);
-  const deployment = await host.request({
-    id: deploymentRequest,
-    type: 'compare:deploy',
-    payload: { validationId, targetOrgId: target.id },
-    timeoutMs: PAGE_DEPLOY_TIMEOUT_MS,
-  });
+  const deployment = await untilStopped(
+    host.request({
+      id: deploymentRequest,
+      type: 'compare:deploy',
+      payload: { validationId, targetOrgId: target.id },
+      timeoutMs: PAGE_DEPLOY_TIMEOUT_MS,
+    }),
+    stop,
+  );
+  const deploying = run.progress.deployId();
   run.progress.follow(undefined);
+  if (deployment === undefined) {
+    stopped(
+      'deployment',
+      deploying !== undefined
+        ? `  stopped while ${args.target} deployed ${theComponents} as ${deploying}: the ` +
+            `deployment goes on in ${args.target}, which keeps what it deploys unless it fails ` +
+            `and is rolled back whole. Setup › Deployment Status follows it as ${deploying}, and ` +
+            'can cancel it there while it runs.'
+        : `  stopped while the deployment of validation ${validationId} was on its way to ` +
+            `${args.target}: if ${args.target} took it, the deployment goes on there, and ` +
+            'Setup › Deployment Status follows it.',
+      { validationId, ...(deploying !== undefined ? { deploymentId: deploying } : {}) },
+    );
+    return;
+  }
   results.push({ op: 'deploy', answer: deployment });
   for (const line of describeAnswer('deploy', deployment)) log(line);
   const deployed = (deployment.message?.payload as { report?: DeploymentReport } | undefined)

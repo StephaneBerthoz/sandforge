@@ -370,9 +370,11 @@ describe('deployPackage', () => {
       false,
       true,
     ]);
+    // Each names the deployment, which goes on in the org whatever stops the
+    // wait on it: a command line stopped in its middle says which it was.
     expect(progress).toEqual([
-      { step: 'components', done: 1, total: 2 },
-      { step: 'tests', done: 2, total: 4 },
+      { step: 'components', done: 1, total: 2, deployId: '0Af000000000001' },
+      { step: 'tests', done: 2, total: 4, deployId: '0Af000000000001' },
     ]);
     expect(result).toBe(finished);
   });

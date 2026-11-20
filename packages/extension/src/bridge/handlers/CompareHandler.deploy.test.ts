@@ -315,6 +315,28 @@ describe('CompareHandler deployments', () => {
       expect(String(error()?.payload.message)).toContain('Setup › Deployment Status');
     });
 
+    it('names the deployment the target runs in its progress, the id Setup › Deployment Status follows it by', async () => {
+      // A command line stopped in the middle of a deployment had no id to
+      // name: the org's goes in the answer, which never came.
+      const slow = orgApi({ deployResult: { done: false, status: 'InProgress' } });
+      connect(orgApi(), slow);
+      let clock = 0;
+      handler = new CompareHandler(deps, {
+        waiting: { ...instant, deployTimeoutMs: 120_000, now: () => (clock += 60_000) },
+      });
+
+      await handler.handle(validateRequest());
+
+      const progress = posted().filter((m) => m.type === 'operation:progress');
+      const deploying = progress.filter((m) => m.payload.currentStep === 'components');
+      expect(deploying.length).toBeGreaterThan(0);
+      for (const message of deploying) expect(message.payload.deployId).toBe('0Af000000000001');
+      // The source's packing is no deployment of the target's.
+      for (const message of progress.filter((m) => m.payload.currentStep === 'retrieve')) {
+        expect(message.payload).not.toHaveProperty('deployId');
+      }
+    });
+
     it.each([
       ['a permission set', { components: [{ componentType: 'PermissionSet', fullName: 'Sales' }] }],
       ['a type that is not one', { components: [{ componentType: 'Other', fullName: 'X' }] }],

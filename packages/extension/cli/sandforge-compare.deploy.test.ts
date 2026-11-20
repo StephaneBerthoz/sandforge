@@ -37,9 +37,39 @@ const TARGET_ID = '00D000000000002AAA';
 /** What the target is, as its Organization record says. */
 type TargetKind = 'sandbox' | 'developer' | 'production';
 
+/**
+ * A stop that comes while the run is under way, as a Ctrl-C does: the call
+ * `during` names stays under way in its org, as a long one does, and `signal`
+ * comes once it is made.
+ */
+interface StopWhile {
+  signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP';
+  /**
+   * `retrieval`: the source packs the components; `validation` and
+   * `deployment`: the target runs the first or the second deployment, which
+   * its status has named; `sending`: the second deployment is on its way, its
+   * id not yet back.
+   */
+  during: 'retrieval' | 'validation' | 'deployment' | 'sending';
+}
+
+/** A call that stays under way: it never comes back. */
+const underWay = <T>(): Promise<T> => new Promise<T>(() => undefined);
+
+/** `signal`, once what is under way has been said: the call made, what it answers posted. */
+function stopNow(signal: StopWhile['signal']): void {
+  setImmediate(() => process.emit(signal));
+}
+
 /** The Metadata API of one org, answering each deployment with the next of `deployResults`. */
-function orgApi(deployResults: Array<Record<string, unknown>> = [], fields: string[] = []) {
+function orgApi(
+  deployResults: Array<Record<string, unknown>> = [],
+  fields: string[] = [],
+  stop?: StopWhile,
+) {
   let deployments = 0;
+  /** The status checks of each deployment, by its id. */
+  const checks = new Map<string, number>();
   const metadata = {
     // The custom fields the org lists, and nothing of any other type.
     list: vi.fn((queries: Array<{ type: string }>) =>
@@ -50,22 +80,48 @@ function orgApi(deployResults: Array<Record<string, unknown>> = [], fields: stri
       ),
     ),
     retrieve: vi.fn(() => Promise.resolve({ id: '09S000000000001' })),
-    checkRetrieveStatus: vi.fn(() =>
-      Promise.resolve({
+    checkRetrieveStatus: vi.fn(() => {
+      if (stop?.during === 'retrieval') {
+        stopNow(stop.signal);
+        return underWay();
+      }
+      return Promise.resolve({
         done: true,
         success: true,
         status: 'Succeeded',
         zipFile: 'UEsDBBQ=',
         fileProperties: [],
         messages: [],
-      }),
-    ),
+      });
+    }),
     deploy: vi.fn(() => {
       deployments += 1;
+      if (stop?.during === 'sending' && deployments === 2) {
+        stopNow(stop.signal);
+        return underWay<{ id: string }>();
+      }
       return Promise.resolve({ id: `0Af00000000000${deployments}` });
     }),
-    checkDeployStatus: vi.fn((id: string) =>
-      Promise.resolve({
+    checkDeployStatus: vi.fn((id: string) => {
+      const checked = (checks.get(id) ?? 0) + 1;
+      checks.set(id, checked);
+      const stalled =
+        (stop?.during === 'validation' && id.endsWith('1')) ||
+        (stop?.during === 'deployment' && id.endsWith('2'));
+      if (stop && stalled) {
+        if (checked > 1) return underWay();
+        stopNow(stop.signal);
+        return Promise.resolve({
+          id,
+          done: false,
+          status: 'InProgress',
+          numberComponentsTotal: 2,
+          numberComponentsDeployed: 1,
+          numberComponentErrors: 0,
+          numberTestsTotal: 0,
+        });
+      }
+      return Promise.resolve({
         id,
         done: true,
         status: 'Succeeded',
@@ -89,8 +145,8 @@ function orgApi(deployResults: Array<Record<string, unknown>> = [], fields: stri
           componentFailures: [],
         },
         ...deployResults[Number(id.slice(-1)) - 1],
-      }),
-    ),
+      });
+    }),
   };
   return { version: '66.0', metadata, limitInfo: undefined };
 }
@@ -126,6 +182,19 @@ function terminal(answer: string): PromptStreams & { said: () => string } {
   let said = '';
   output.on('data', (chunk: Buffer) => {
     said += String(chunk);
+  });
+  return { input, output, said: () => said };
+}
+
+/** A terminal no one types on: `signal` comes once the question is asked, as a Ctrl-C there. */
+function stoppedAtTheQuestion(signal: StopWhile['signal']): PromptStreams & { said: () => string } {
+  const input = Object.assign(new PassThrough(), { isTTY: true });
+  const output = new PassThrough();
+  let said = '';
+  output.on('data', (chunk: Buffer) => {
+    const askedBefore = said.includes('to deploy it:');
+    said += String(chunk);
+    if (!askedBefore && said.includes('to deploy it:')) stopNow(signal);
   });
   return { input, output, said: () => said };
 }
@@ -168,12 +237,14 @@ function harness(
     targetDeploys?: Array<Record<string, unknown>>;
     /** The custom fields each org lists. */
     fields?: { source: string[]; target: string[] };
+    /** A stop that comes while the run is under way. */
+    stop?: StopWhile;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-compare-deploy-'));
   dirs.push(dir);
-  const source = orgApi([], options.fields?.source);
-  const target = orgApi(options.targetDeploys, options.fields?.target);
+  const source = orgApi([], options.fields?.source, options.stop);
+  const target = orgApi(options.targetDeploys, options.fields?.target, options.stop);
   const connected: string[] = [];
   const sent: PanelRequest[] = [];
   vi.mocked(getJsforceConnection).mockImplementation((orgId: string) =>
@@ -496,6 +567,121 @@ describe('sandforge compare --deploy', () => {
       deploymentId: '0Af000000000002',
     });
     expect(stderr).toContain('deployment 0Af000000000002: Succeeded, success');
+  });
+});
+
+describe('sandforge compare --deploy, stopped', () => {
+  /*
+   * A Metadata API deployment goes on in the target once it is sent: a stop
+   * cannot call it back. The run stopped as nothing else did, killed by the
+   * signal with nothing said, and the id that Setup › Deployment Status
+   * follows the deployment by was never printed.
+   */
+
+  it('stops on a Ctrl-C while the target deploys, names the deployment that goes on there, and exits 130', async () => {
+    const h = harness({ stop: { signal: 'SIGINT', during: 'deployment' } });
+    const { code, stdout, stderr } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(code).toBe(130);
+    expect(stderr).toContain(
+      'interrupted: the run stops waiting on TGT and says what it sent there ' +
+        '(Ctrl-C again ends it at once)',
+    );
+    expect(stdout).toContain(
+      '  stopped while TGT deployed the components as 0Af000000000002: the deployment goes on ' +
+        'in TGT, which keeps what it deploys unless it fails and is rolled back whole. ' +
+        'Setup › Deployment Status follows it as 0Af000000000002, and can cancel it there ' +
+        'while it runs.',
+    );
+    expect(stdout).not.toContain('deployed to TGT, which lists it');
+    expect(h.sent.map((r) => r.type)).toEqual(['compare:validate-deployment', 'compare:deploy']);
+  });
+
+  it('stops on a SIGTERM as on a Ctrl-C, with its own exit code', async () => {
+    const h = harness({ stop: { signal: 'SIGTERM', during: 'deployment' } });
+    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(code).toBe(143);
+    expect(stdout).toContain('the deployment goes on in TGT');
+  });
+
+  it('says a deployment stopped on its way may have reached the target, its id not yet back', async () => {
+    const h = harness({ stop: { signal: 'SIGINT', during: 'sending' } });
+    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(code).toBe(130);
+    expect(stdout).toContain(
+      '  stopped while the deployment of validation 0Af000000000001 was on its way to TGT: ' +
+        'if TGT took it, the deployment goes on there, and Setup › Deployment Status follows it.',
+    );
+  });
+
+  it('deploys nothing once stopped at the question, and says the validation changed nothing', async () => {
+    const h = harness();
+    const typed = stoppedAtTheQuestion('SIGINT');
+    const { code, stdout } = await h.run(typed, ...COMPONENTS);
+
+    expect(code).toBe(130);
+    expect(h.sent.map((r) => r.type)).toEqual(['compare:validate-deployment']);
+    expect(deploymentsOf(h.target).map((d) => d.checkOnly)).toEqual([true]);
+    expect(stdout).toContain(
+      '  stopped at the question: nothing was deployed to TGT. The validation 0Af000000000001 ' +
+        'changed nothing there.',
+    );
+    expect(stdout).not.toContain('what was typed is not TGT');
+  });
+
+  it('deploys nothing once stopped while the target validates, and names the validation, which keeps nothing', async () => {
+    const h = harness({ stop: { signal: 'SIGINT', during: 'validation' } });
+    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(code).toBe(130);
+    expect(h.sent.map((r) => r.type)).toEqual(['compare:validate-deployment']);
+    expect(deploymentsOf(h.target).map((d) => d.checkOnly)).toEqual([true]);
+    expect(stdout).toContain(
+      '  stopped while TGT validated the components as 0Af000000000001: nothing was deployed ' +
+        'to TGT. The validation goes on there check-only and keeps nothing; Setup › Deployment ' +
+        'Status lists it.',
+    );
+  });
+
+  it('deploys nothing once stopped while the source packs the components', async () => {
+    const h = harness({ stop: { signal: 'SIGHUP', during: 'retrieval' } });
+    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(code).toBe(129);
+    expect(h.target.metadata.deploy).not.toHaveBeenCalled();
+    expect(stdout).toContain(
+      '  stopped before TGT gave the validation an id: nothing was deployed to TGT, and a ' +
+        'validation, check-only, keeps nothing there.',
+    );
+  });
+
+  it('answers --json with how far the run went and the ids it was given', async () => {
+    const h = harness({ stop: { signal: 'SIGINT', during: 'deployment' } });
+    const { code, stdout, stderr } = await h.run(noTerminal(), ...COMPONENTS, '--yes', '--json');
+
+    expect(code).toBe(130);
+    const answer = JSON.parse(stdout) as {
+      results: Array<{ op: string }>;
+      deploy: Record<string, unknown>;
+    };
+    expect(answer.results.map((r) => r.op)).toEqual(['validate-deployment']);
+    expect(answer.deploy).toMatchObject({
+      outcome: 'interrupted',
+      stoppedDuring: 'deployment',
+      validationId: '0Af000000000001',
+      deploymentId: '0Af000000000002',
+    });
+    expect(stderr).toContain('the deployment goes on in TGT');
+  });
+
+  it('lets the stop signals go once the run is over', async () => {
+    const before = ['SIGINT', 'SIGTERM', 'SIGHUP'].map((s) => process.listenerCount(s));
+    const h = harness();
+    await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    expect(['SIGINT', 'SIGTERM', 'SIGHUP'].map((s) => process.listenerCount(s))).toEqual(before);
   });
 });
 

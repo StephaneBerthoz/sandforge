@@ -163,6 +163,12 @@ export interface DeployProgress {
   step: 'retrieve' | 'components' | 'tests';
   done: number;
   total: number;
+  /**
+   * The deployment the target runs, as Setup › Deployment Status lists it;
+   * none while the source packs. Once sent, it goes on in the org whatever
+   * stops the wait on it, and a command line stopped in its middle names it.
+   */
+  deployId?: string;
 }
 
 /** A run the org kept going past the wait: its id says where to follow it. */
@@ -382,7 +388,7 @@ export async function deployPackage(
   for (;;) {
     const status = await api.checkDeployStatus(id, false);
     if (status.done) return api.checkDeployStatus(id, true);
-    hooks.onProgress?.(progressOf(status));
+    hooks.onProgress?.({ ...progressOf(status), deployId: id });
     if (waiting.now() - startedAt >= waiting.deployTimeoutMs) {
       throw new DeploymentStillRunning(
         'deployment',

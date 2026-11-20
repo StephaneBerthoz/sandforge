@@ -3,6 +3,7 @@ import type {
   NotificationAction,
   NotificationMessage,
   GrappeConfig,
+  OperationProgress,
   RobustnessConfig,
 } from '@sandforge/shared';
 import {
@@ -447,7 +448,12 @@ export function sendOperationStarted(
   deps.broker.postToWebview(msg);
 }
 
-/** Send operation:progress lifecycle message. */
+/**
+ * Send operation:progress lifecycle message.
+ *
+ * @param detail - What else the run says of where it stands: the id of the
+ *   deployment a target runs (`OperationProgress`).
+ */
 export function sendOperationProgress(
   deps: Pick<HandlerDeps, 'broker' | 'nextId'>,
   operationId: string,
@@ -455,20 +461,20 @@ export function sendOperationProgress(
   processedRecords: number,
   totalRecords: number,
   currentStep: string,
+  detail?: Pick<OperationProgress['payload'], 'deployId'>,
 ): void {
-  const msg: BaseMessage & {
-    payload: {
-      operationId: string;
-      percentage: number;
-      processedRecords: number;
-      totalRecords: number;
-      currentStep: string;
-    };
-  } = {
+  const msg: OperationProgress = {
     id: deps.nextId(),
     type: 'operation:progress',
     timestamp: Date.now(),
-    payload: { operationId, percentage, processedRecords, totalRecords, currentStep },
+    payload: {
+      operationId,
+      percentage,
+      processedRecords,
+      totalRecords,
+      currentStep,
+      ...detail,
+    },
   };
   deps.broker.postToWebview(msg);
 }

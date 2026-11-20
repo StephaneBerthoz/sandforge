@@ -195,6 +195,11 @@ org is reached.
   came back with no success (the target rolls a failed deployment back whole);
   `1` when it was refused, the alias typed was not the target's, or a request
   failed. `--json` carries both reports and how the run ended.
+- **A Ctrl-C**, a SIGTERM or a SIGHUP stops the wait, not the target: a
+  deployment it sent goes on there. The run says where it was stopped, names
+  the validation or the deployment the target runs, which Setup › Deployment
+  Status follows, and exits `130`, `143` or `129`. Stopped before the
+  deployment was sent, it deployed nothing.
 - **It deletes nothing** from the target: a component it created stays there
   until it is deleted in the target itself.
 

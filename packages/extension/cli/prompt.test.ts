@@ -90,6 +90,20 @@ describe('a question on the terminal', () => {
     await expect(closed).resolves.toBe('');
   });
 
+  it('hands back nothing typed once the command is stopped while it waits on the word, and lets the terminal go', async () => {
+    // A Ctrl-C at `compare --deploy`'s question ended the process at once,
+    // before it said that the validation it ran had changed nothing.
+    const { io, input, asked } = streams(true);
+    const stop = new AbortController();
+
+    const asking = typed('Type TGT to deploy it:', io, stop.signal);
+    stop.abort();
+
+    await expect(asking).resolves.toBe('');
+    expect(asked()).toBe('Type TGT to deploy it: \n');
+    expect(input.listenerCount('data')).toBe(0);
+  });
+
   it('stops the command with exit 2 when no terminal is there to answer, and says to give --yes', async () => {
     // In a CI step the question waited until the job's timeout, or the
     // command exited 0 having written nothing, without a word.

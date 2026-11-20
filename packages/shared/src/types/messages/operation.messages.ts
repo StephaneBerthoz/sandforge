@@ -17,6 +17,12 @@ export interface OperationProgress extends BaseMessage {
     processedRecords: number;
     totalRecords: number;
     currentStep: string;
+    /**
+     * The Metadata API deployment a Compare validation or deployment runs in
+     * the target, once the org has named it: it goes on there whatever stops
+     * the wait on it.
+     */
+    deployId?: string;
   };
 }
 

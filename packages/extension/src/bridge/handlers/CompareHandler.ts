@@ -453,7 +453,8 @@ export class CompareHandler implements DomainHandler {
 
   /**
    * Where a run stands, on `operation:progress` under the request's id: the
-   * page that sent the request reads its own run and no other.
+   * page that sent the request reads its own run and no other. Once the
+   * target runs it, the deployment's id goes with it.
    */
   private progressTo(msg: InboundRequest): (progress: DeployProgress) => void {
     return (progress) =>
@@ -464,6 +465,7 @@ export class CompareHandler implements DomainHandler {
         progress.done,
         progress.total,
         progress.step,
+        progress.deployId !== undefined ? { deployId: progress.deployId } : undefined,
       );
   }
 
