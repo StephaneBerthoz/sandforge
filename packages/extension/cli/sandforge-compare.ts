@@ -43,6 +43,7 @@ import type {
   CompareItem,
   CompareResult,
   DeploymentComponentRef,
+  DeploymentComponentResult,
   DeploymentReport,
   DeployTestLevel,
   MetadataComponentType,
@@ -469,9 +470,21 @@ function parseValidation(
   return { components, testLevel, runTests };
 }
 
+/**
+ * What a validation says of a component the target would take, in the Deploy
+ * tab's words: it is check-only, and the target keeps nothing of it.
+ */
+const CHECK_ONLY_OUTCOME: Readonly<Partial<Record<DeploymentComponentResult['outcome'], string>>> =
+  {
+    created: 'would be created',
+    changed: 'would change',
+  };
+
 /** Lines for one deployment report: the verdict, each component, each failed test. */
 export function describeDeployment(report: DeploymentReport): string[] {
   const { counts } = report;
+  // A validation's words are the longer: "would be created".
+  const width = report.checkOnly ? 16 : 13;
   const lines = [
     `  ${report.checkOnly ? 'validation' : 'deployment'} ${report.deployId ?? '(none sent)'}: ` +
       `${report.status}, ${report.success ? 'success' : 'no success'}` +
@@ -487,7 +500,8 @@ export function describeDeployment(report: DeploymentReport): string[] {
         ? ` (line ${c.line}${c.column !== undefined ? `, column ${c.column}` : ''})`
         : '';
     const problem = c.problem ? ` — ${c.problem}${at}` : '';
-    lines.push(`    ${c.outcome.padEnd(13)} ${c.componentType} ${c.fullName}${problem}`);
+    const outcome = (report.checkOnly ? CHECK_ONLY_OUTCOME[c.outcome] : undefined) ?? c.outcome;
+    lines.push(`    ${outcome.padEnd(width)} ${c.componentType} ${c.fullName}${problem}`);
   }
   for (const f of report.testFailures) {
     const name = f.methodName ? `${f.className}.${f.methodName}` : f.className;

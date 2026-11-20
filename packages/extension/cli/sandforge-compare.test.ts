@@ -222,9 +222,54 @@ describe('describeDeployment', () => {
       '  validation 0Af000000000001: Failed, no success',
       '  components: 1 of 2 without an error, 1 with one; tests (RunSpecifiedTests: InvoicingTest): ' +
         '0 of 1 passed, 1 failed',
-      '    failed        ApexClass Invoicing — Variable does not exist: total (line 12, column 5)',
-      '    changed       Layout Order-Order Layout',
+      '    failed           ApexClass Invoicing — Variable does not exist: total (line 12, column 5)',
+      '    would change     Layout Order-Order Layout',
       '    test failed  InvoicingTest.charges (line 21) — Assertion Failed',
+    ]);
+  });
+
+  /** A report of three components: one the target lacks, one it holds otherwise, one it holds alike. */
+  const threeComponents = (checkOnly: boolean): DeploymentReport => ({
+    deployId: '0Af000000000001',
+    checkOnly,
+    status: 'Succeeded',
+    success: true,
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    testLevel: 'NoTestRun',
+    runTests: [],
+    components: [
+      { componentType: 'CustomField', fullName: 'Account.Region__c', outcome: 'created' },
+      { componentType: 'ApexClass', fullName: 'Invoicing', outcome: 'changed' },
+      { componentType: 'Layout', fullName: 'Order-Order Layout', outcome: 'unchanged' },
+    ],
+    counts: {
+      componentsTotal: 3,
+      componentsDeployed: 3,
+      componentErrors: 0,
+      testsTotal: 0,
+      testsCompleted: 0,
+      testErrors: 0,
+    },
+    testFailures: [],
+    coverageWarnings: [],
+  });
+
+  it('says what a validation would create or change, as the Deploy tab does, where it said created and changed', () => {
+    // A validation is check-only: the target kept nothing, and the line said
+    // "created" of a field it does not hold.
+    expect(describeDeployment(threeComponents(true)).slice(2)).toEqual([
+      '    would be created CustomField Account.Region__c',
+      '    would change     ApexClass Invoicing',
+      '    unchanged        Layout Order-Order Layout',
+    ]);
+  });
+
+  it('says what a deployment created and changed, which the target keeps', () => {
+    expect(describeDeployment(threeComponents(false)).slice(2)).toEqual([
+      '    created       CustomField Account.Region__c',
+      '    changed       ApexClass Invoicing',
+      '    unchanged     Layout Order-Order Layout',
     ]);
   });
 });

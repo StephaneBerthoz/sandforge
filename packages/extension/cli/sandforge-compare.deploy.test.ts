@@ -318,6 +318,20 @@ describe('sandforge compare --deploy', () => {
     expect(stdout).toContain('Setup › Deployment Status as 0Af000000000002');
   });
 
+  it('says what the validation would create or change, as the Deploy tab does, and what the deployment created and changed', async () => {
+    // The validation is check-only: its lines said "created" of a field the
+    // target did not hold, and kept nothing of.
+    const h = harness();
+    const { stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+
+    const [validation, deployment] = stdout.split('compare:deploy ');
+    expect(validation).toContain('    would change     ApexClass Invoicing\n');
+    expect(validation).toContain('    would be created CustomField Account.Region__c\n');
+    expect(validation).not.toMatch(/^ {4}(created|changed) /m);
+    expect(deployment).toContain('    changed       ApexClass Invoicing\n');
+    expect(deployment).toContain('    created       CustomField Account.Region__c\n');
+  });
+
   it('records the deployment in the audit trail of its store, as the panel records its own', async () => {
     const h = harness();
     await h.run(noTerminal(), ...COMPONENTS, '--yes');
@@ -439,7 +453,7 @@ describe('sandforge compare --deploy', () => {
     expect(h.sent.map((r) => r.type)).toEqual(['compare:validate-deployment']);
     expect(deploymentsOf(h.target).map((d) => d.checkOnly)).toEqual([true]);
     expect(stdout).toContain(
-      '    failed        ApexClass Invoicing — Variable does not exist: total (line 12, column 5)',
+      '    failed           ApexClass Invoicing — Variable does not exist: total (line 12, column 5)',
     );
     expect(stdout).toContain('the validation did not succeed: nothing was deployed');
   });

@@ -186,6 +186,9 @@ org is reached.
   tests. With no `--tests`, the target's own tests run when an Apex class or
   trigger is among the components, as the tab advises. `--dry-run` says the
   same and sends nothing to either org.
+- **Each report** words each component as the tab does: the validation, which
+  keeps nothing, says it _would be created_ or _would change_; the deployment
+  says it was _created_ or _changed_.
 - **A production target**, or one it cannot tell from one, is refused before
   anything is sent, `--dry-run` included, exit `1`. No flag lifts it.
 - **It exits** `0` once deployed; `3` when the validation or the deployment
