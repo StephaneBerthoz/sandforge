@@ -2171,6 +2171,87 @@ describe('RewindPreview, limited to some objects', () => {
     ).toBeInTheDocument();
   });
 
+  it('says what goes with the records it deletes of an object not ticked, never as deleted again, and the typed confirmation says so of the other objects', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Account');
+    pick('Case');
+    settle();
+    // A rewind of the contacts alone, deleting their accounts' contact made
+    // since: the case made under it goes with it.
+    answerPlan({
+      objects: ['Contact'],
+      acts: [
+        {
+          objectApiName: 'Case',
+          picked: false,
+          toDelete: 3,
+          withParent: 3,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+        {
+          objectApiName: 'Contact',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+      undoCannot: [],
+    });
+    expect(screen.queryByTestId('checkpoint-preview-selection-again-Case')).toBeNull();
+    expect(screen.getByTestId('checkpoint-preview-selection-with-Case').textContent).toBe(
+      'Case, not ticked: 3 records made since under a record this rewind deletes go to the recycle bin with it, and Undo brings them back with it.',
+    );
+    expect(
+      screen.getByText(
+        'The objects not ticked are left as they are, but for the records said below: what still differs in them is counted apart once the rewind is through.',
+      ),
+    ).toBeInTheDocument();
+    expect(rowCells('Case')).toEqual(['CaseNot rewound', '3', '0', '0', '0']);
+    expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('4 to delete');
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(
+      screen.getByText(
+        /Of the other objects, it deletes only the records made since under a record it deletes, which go to the recycle bin with it\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/The other objects are left as they are\./)).toBeNull();
+  });
+
+  it('names the relations of contacts to their own account kept with the contacts a rewind of the relations alone leaves', () => {
+    renderPreview();
+    const made = { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 };
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('AccountContactRelation', { toDelete: made }),
+          diffObject('Contact', { toDelete: made }),
+        ],
+      }),
+    });
+    pick('Contact');
+    settle();
+    answerPlan({
+      objects: ['AccountContactRelation'],
+      acts: [],
+      left: [{ objectApiName: 'AccountContactRelation', reason: 'contactKept', count: 2 }],
+      needs: [{ objectApiName: 'Contact', records: 2 }],
+      undoCannot: [],
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-selection-left-AccountContactRelation-contactKept')
+        .textContent,
+    ).toBe(
+      'AccountContactRelation: 2 records kept — each the relation of a contact made since to its own account, which Salesforce deletes only with the contact, and this rewind leaves the contact.',
+    );
+  });
+
   it('holds Rewind until what Undo could not bring back of the plan is accepted, as the rewind refuses it', () => {
     const { onRewind } = renderPreview();
     answerPreview(threeObjects());

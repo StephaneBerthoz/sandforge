@@ -1806,11 +1806,19 @@ export interface RewindScope {
  *   checkpoint — and that was not accepted;
  * - `holdsLeft`: a record left hangs from it, which its deletion would take
  *   along;
+ * - `contactKept`: a contact's relation to its own account, the direct one,
+ *   whose contact this rewind leaves: Salesforce deletes it only with the
+ *   contact;
  * - `keyTaken`: a row of a custom setting to bring back whose owner or name a
  *   live row holds.
  */
 export type RewindSelectionLeftReason =
-  'needsUnpickedParent' | 'heldByUnpicked' | 'outsideNotAccepted' | 'holdsLeft' | 'keyTaken';
+  | 'needsUnpickedParent'
+  | 'heldByUnpicked'
+  | 'outsideNotAccepted'
+  | 'holdsLeft'
+  | 'contactKept'
+  | 'keyTaken';
 
 /**
  * What a rewind limited to the objects picked would do to one object. An
@@ -1825,8 +1833,10 @@ export interface RewindSelectionAct {
   toDelete: number;
   /**
    * Of {@link toDelete}, the records that go with a parent it deletes, never
-   * sent on their own: what its estimate does not count sent. Absent from a
-   * plan made before it was told.
+   * sent on their own: what its estimate does not count sent. Of an object
+   * not picked, made since under a record it deletes, once that was
+   * accepted: a contact's relations, with the contact. Absent from a plan
+   * made before it was told.
    */
   withParent?: number;
   toGiveBack: number;

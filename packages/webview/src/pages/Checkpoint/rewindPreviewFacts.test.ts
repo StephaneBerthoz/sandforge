@@ -11,6 +11,7 @@ import {
   deletesPicked,
   filesBroughtBack,
   filesLeft,
+  goneWith,
   heldAsItWas,
   ignoredAfter,
   isIgnored,
@@ -560,10 +561,32 @@ describe('a rewind of some objects', () => {
         toRecreate: 0,
       }),
     );
-    expect(deletedAgain(plan)).toEqual([plan.acts[0]]);
+    expect(deletedAgain(plan)).toEqual([{ objectApiName: 'Contact', records: 2 }]);
+    expect(goneWith(plan)).toEqual([]);
     expect(deletesPicked(plan)).toBe(false);
     expect(lastChangers(counted)).toEqual([]);
     expect(outsideLines(counted)).toEqual([]);
+  });
+
+  it('tells apart, of an object not picked, what goes with a record a rewind deletes from what it deletes again', () => {
+    const relations = {
+      objectApiName: 'AccountContactRelation',
+      picked: false,
+      toDelete: 1_000,
+      withParent: 1_000,
+      toGiveBack: 0,
+      toBringBack: 0,
+      toRecreate: 0,
+    };
+    const cases = { ...relations, objectApiName: 'Case', toDelete: 5, withParent: 3 };
+    const contacts = { ...relations, objectApiName: 'Contact', picked: true, withParent: 0 };
+    const plan = { acts: [relations, cases, contacts] };
+
+    expect(deletedAgain(plan)).toEqual([{ objectApiName: 'Case', records: 2 }]);
+    expect(goneWith(plan)).toEqual([
+      { objectApiName: 'AccountContactRelation', records: 1_000 },
+      { objectApiName: 'Case', records: 3 },
+    ]);
   });
 
   it('says a rewind deletes records of the objects picked, whose lookups from the others Salesforce empties', () => {

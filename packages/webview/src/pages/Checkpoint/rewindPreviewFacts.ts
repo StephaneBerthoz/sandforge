@@ -9,7 +9,6 @@ import type {
   RewindResidual,
   RewindResidualReason,
   RewindResult,
-  RewindSelectionAct,
   RewindSelectionPlan,
   RewindStatus,
 } from '@sandforge/shared';
@@ -474,13 +473,36 @@ export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): Rewi
   };
 }
 
+/** Records of one object not picked that a rewind limited to some objects deletes, for one reason. */
+export interface UnpickedDeleted {
+  objectApiName: string;
+  records: number;
+}
+
 /**
  * Of the objects not picked, those a rewind limited to the plan's objects
- * deletes records of: made since, they come back with a record it brings
- * back, and leaving them would make a state that never existed.
+ * deletes records of again: made since, they come back with a record it
+ * brings back, and leaving them would make a state that never existed. What
+ * goes with a record it deletes is not among them (`goneWith`).
  */
-export function deletedAgain(plan: Pick<RewindSelectionPlan, 'acts'>): RewindSelectionAct[] {
-  return plan.acts.filter((act) => !act.picked && act.toDelete > 0);
+export function deletedAgain(plan: Pick<RewindSelectionPlan, 'acts'>): UnpickedDeleted[] {
+  return plan.acts.flatMap((act) => {
+    const records = act.toDelete - (act.withParent ?? 0);
+    return !act.picked && records > 0 ? [{ objectApiName: act.objectApiName, records }] : [];
+  });
+}
+
+/**
+ * Of the objects not picked, those whose records made since under a record a
+ * rewind limited to the plan's objects deletes go to the recycle bin with it,
+ * and come back with it on Undo: a contact's relations, with the contact.
+ */
+export function goneWith(plan: Pick<RewindSelectionPlan, 'acts'>): UnpickedDeleted[] {
+  return plan.acts.flatMap((act) =>
+    !act.picked && (act.withParent ?? 0) > 0
+      ? [{ objectApiName: act.objectApiName, records: act.withParent ?? 0 }]
+      : [],
+  );
 }
 
 /**

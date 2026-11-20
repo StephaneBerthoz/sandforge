@@ -527,18 +527,19 @@ JSON (--json), one value on stdout:
                      object by object: [{objectApiName, children, records}], of the records to
                      delete of an object, the objects whose records their delete takes along
                      out of the user's sight; with --object, objects, the objects named, and
-                     selection, {objects, acts: [{objectApiName, picked, toDelete, toGiveBack,
-                     toBringBack, toRecreate}], left: [{objectApiName, reason, count}], needs:
-                     [{objectApiName, records}], undoCannot}, what a rewind of them alone would
-                     do and leave — reason needsUnpickedParent, heldByUnpicked,
-                     outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
-                     numbers, differs and estimate are then the rewind's of those objects,
-                     diff the whole diff; of a checkpoint of picked objects whose records
-                     outside it were made since under records a rewind would delete, kept:
-                     [{objectApiName, reason, count}], what a rewind without --accept-outside
-                     keeps for them — reason outsideNotAccepted or holdsLeft —, the numbers
-                     then those of what it writes, differs the whole diff's (preview previews
-                     that rewind)
+                     selection, {objects, acts: [{objectApiName, picked, toDelete, withParent?,
+                     toGiveBack, toBringBack, toRecreate}], left: [{objectApiName, reason,
+                     count}], needs: [{objectApiName, records}], undoCannot}, what a rewind of
+                     them alone would do and leave — withParent, of toDelete, the records that go
+                     with a record it deletes, of an object named or not; reason
+                     needsUnpickedParent, heldByUnpicked, outsideNotAccepted, holdsLeft,
+                     contactKept or keyTaken — and the objects to add; the numbers, differs and
+                     estimate are then the rewind's of those objects, diff the whole diff; of a
+                     checkpoint of picked objects whose records outside it were made since under
+                     records a rewind would delete, kept: [{objectApiName, reason, count}], what
+                     a rewind without --accept-outside keeps for them — reason
+                     outsideNotAccepted, holdsLeft or contactKept —, the numbers then those of
+                     what it writes, differs the whole diff's (preview previews that rewind)
   rewind --dry-run   as preview, with wouldBeRefused: ["refused (CODE): message"] and
                      wouldBeRefusedCodes: ["CODE"], one for each refusal a rewind with these
                      flags would meet, in order; asked to mute, emails and deliverability are
@@ -2567,23 +2568,48 @@ const SELECTION_LEFT_WORDS: Readonly<Record<RewindSelectionLeftReason, string>> 
   holdsLeft:
     'records this rewind leaves as they are hang from them, which their deletion would take ' +
     'along: kept',
+  contactKept:
+    'the relation of a contact made since to its own account, which Salesforce deletes only ' +
+    'with the contact, and this rewind leaves the contact: kept with it',
   keyTaken:
     'rows of a custom setting whose owner or name a row made since holds: brought back once it ' +
     'is gone',
 };
 
-/** What a preview of a rewind limited to some objects adds: what it leaves of them and why, and the objects to add. */
+/**
+ * What a preview of a rewind limited to some objects adds: what it deletes of
+ * the others — what comes back with a record it brings back, deleted again,
+ * and what goes with a record it deletes —, what it leaves of them and why,
+ * and the objects to add.
+ */
 export function selectionLines(plan: RewindSelectionPlan): string[] {
+  const others = plan.acts.filter((act) => !act.picked);
+  const again = others.flatMap((act) => {
+    const records = act.toDelete - (act.withParent ?? 0);
+    return records > 0 ? [`${act.objectApiName} ${count(records)}`] : [];
+  });
+  const along = others.flatMap((act) =>
+    (act.withParent ?? 0) > 0 ? [`${act.objectApiName} ${count(act.withParent ?? 0)}`] : [],
+  );
   const lines = [
-    `  limited to ${plan.objects.join(', ')}: the other objects are left as they are, and what ` +
-      'still differs in them is counted apart',
+    `  limited to ${plan.objects.join(', ')}: the other objects are left as they are` +
+      (again.length + along.length > 0 ? ', but for the records said below' : '') +
+      ', and what still differs in them is counted apart',
   ];
-  const others = plan.acts.filter((act) => !act.picked && act.toDelete > 0);
-  if (others.length > 0) {
+  if (again.length > 0) {
     lines.push(
-      `  also deletes again ${someOf(others.map((a) => `${a.objectApiName} ${count(a.toDelete)}`))} ` +
+      `  also deletes again ${someOf(again)} ` +
         '— made since, they come back with a record it brings back: leaving them would make a ' +
         'state that never existed',
+    );
+  }
+  // Said as what goes outside the checkpoint is: deleted with the records the
+  // rewind deletes, never sent, and brought back with them by its undo.
+  if (along.length > 0) {
+    lines.push(
+      `  also deleted with them, outside the objects named: ${someOf(along)} — made since ` +
+        'under the records it deletes, they go to the recycle bin with them, and an undo ' +
+        'brings them back with them',
     );
   }
   for (const left of plan.left) {

@@ -63,6 +63,7 @@ import {
   deletedAgain,
   deletesPicked,
   filesBroughtBack,
+  goneWith,
   heldAsItWas,
   lastChangers,
   linkWrites,
@@ -106,6 +107,7 @@ const SELECTION_LEFT_KEYS: Readonly<Record<RewindSelectionLeftReason, string>> =
   heldByUnpicked: 'checkpoint.preview.selection.left.heldByUnpicked',
   outsideNotAccepted: 'checkpoint.preview.selection.left.outsideNotAccepted',
   holdsLeft: 'checkpoint.preview.selection.left.holdsLeft',
+  contactKept: 'checkpoint.preview.selection.left.contactKept',
   keyTaken: 'checkpoint.preview.selection.left.keyTaken',
 };
 
@@ -1195,7 +1197,11 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           settings,
           org.username,
           selecting
-            ? { objects: picks, deletesAgain: plan ? deletedAgain(plan).length > 0 : false }
+            ? {
+                objects: picks,
+                deletesAgain: plan ? deletedAgain(plan).length > 0 : false,
+                goesWith: plan ? goneWith(plan).length > 0 : false,
+              }
             : undefined,
           confirming?.acceptOutside === true ? duplicateSetsOf(counted) : 0,
         )}
@@ -1229,6 +1235,20 @@ function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): nu
 }
 
 /**
+ * What the typed confirmation of a rewind of some objects says it does to
+ * the others: nothing; delete again what comes back with a record it brings
+ * back; delete what goes with a record it deletes; or both.
+ */
+function othersKeyOf(limited: { deletesAgain: boolean; goesWith: boolean }): string {
+  if (limited.deletesAgain && limited.goesWith) {
+    return 'checkpoint.preview.confirm.othersDeletedAgainAndGoWith';
+  }
+  if (limited.deletesAgain) return 'checkpoint.preview.confirm.othersDeletedAgain';
+  if (limited.goesWith) return 'checkpoint.preview.confirm.othersGoWith';
+  return 'checkpoint.preview.confirm.othersLeft';
+}
+
+/**
  * What the typed confirmation of a rewind says it does: to what moment it
  * returns the org, and only the parts of it that apply — the records it
  * deletes, gives back, brings back and makes again, those it brings back
@@ -1238,10 +1258,10 @@ function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): nu
  * the user named at the take, and which the rewind sets back too; and, read
  * object by object, what its deletions take along that `user` can't see,
  * which no number counts. A rewind of some objects names them, and says what
- * it does to the others: nothing, or delete again what comes back with a
- * record it brings back. The duplicate record sets it deletes with what
- * goes along outside the checkpoint (`sets`) are said with what an undo
- * leaves of them: Salesforce brings a deleted set back without its items.
+ * it does to the others (`othersKeyOf`). The duplicate record sets it
+ * deletes with what goes along outside the checkpoint (`sets`) are said with
+ * what an undo leaves of them: Salesforce brings a deleted set back without
+ * its items.
  */
 function confirmDescription(
   t: TFunction,
@@ -1250,7 +1270,7 @@ function confirmDescription(
   takenFrom: string,
   settings: ReadonlySet<string>,
   user: string,
-  limited?: { objects: readonly string[]; deletesAgain: boolean },
+  limited?: { objects: readonly string[]; deletesAgain: boolean; goesWith: boolean },
   sets = 0,
 ): string {
   const totals = rewindTotals(diff);
@@ -1281,13 +1301,7 @@ function confirmDescription(
   const unseen = unseenChildren(diff);
   return [
     description,
-    ...(limited
-      ? [
-          limited.deletesAgain
-            ? t('checkpoint.preview.confirm.othersDeletedAgain')
-            : t('checkpoint.preview.confirm.othersLeft'),
-        ]
-      : []),
+    ...(limited ? [t(othersKeyOf(limited))] : []),
     ...(rows > 0
       ? [
           t('checkpoint.preview.confirm.customSettings', {
@@ -1605,10 +1619,10 @@ interface SelectionProps {
 /**
  * What a rewind limited to the objects ticked would do and leave, as its own
  * plan says it: the objects it is limited to, and that the others are left
- * as they are; what it deletes again of the others; the records of the
- * objects ticked it leaves, by why; the objects those need, each with a
- * button that ticks it; and that a lookup of another object to a record it
- * deletes is emptied by Salesforce.
+ * as they are; what it deletes again of the others, and what of them goes
+ * with a record it deletes; the records of the objects ticked it leaves, by
+ * why; the objects those need, each with a button that ticks it; and that a
+ * lookup of another object to a record it deletes is emptied by Salesforce.
  */
 const Selection: React.FC<SelectionProps> = ({
   picks,
@@ -1631,11 +1645,18 @@ const Selection: React.FC<SelectionProps> = ({
   });
   const lines: Array<{ id: string; text: string }> = plan
     ? [
-        ...deletedAgain(plan).map((act) => ({
-          id: `again-${act.objectApiName}`,
+        ...deletedAgain(plan).map((again) => ({
+          id: `again-${again.objectApiName}`,
           text: t('checkpoint.preview.selection.deletedAgain', {
-            ...counted(act.toDelete),
-            object: act.objectApiName,
+            ...counted(again.records),
+            object: again.objectApiName,
+          }),
+        })),
+        ...goneWith(plan).map((along) => ({
+          id: `with-${along.objectApiName}`,
+          text: t('checkpoint.preview.selection.goneWith', {
+            ...counted(along.records),
+            object: along.objectApiName,
           }),
         })),
         ...plan.left.map((entry) => ({
@@ -1662,7 +1683,13 @@ const Selection: React.FC<SelectionProps> = ({
           : t('checkpoint.preview.selection.noneTitle')}
       </h3>
       {picks.length > 0 ? (
-        <p>{t('checkpoint.preview.selection.limited')}</p>
+        <p>
+          {t(
+            plan && deletedAgain(plan).length + goneWith(plan).length > 0
+              ? 'checkpoint.preview.selection.limitedBut'
+              : 'checkpoint.preview.selection.limited',
+          )}
+        </p>
       ) : (
         <p role="status" data-testid="checkpoint-preview-selection-none">
           {t('checkpoint.preview.selection.none')}

@@ -2583,6 +2583,103 @@ describe('sandforge-checkpoint, a rewind of some objects', () => {
       limitedTo: ['Case'],
     });
   });
+
+  it('counts the relations that go with the contacts a rewind of contacts alone deletes, in its dry run, its lines and its JSON, and in those of its undo', async () => {
+    // Run for real on a run's checkpoint, the rewind of its 1,000 contacts
+    // said "deleted 1,001" and its undo "brought back 1,001", their 1,000
+    // relations gone and back with them.
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Contact', 'AccountContactRelation'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const org = new RelationsOrg();
+    // Salesforce undeletes a relation only with its contact or its account.
+    org.comesBackOnlyWithParent.add('AccountContactRelation');
+    const h = harness({ org, automation: quiet });
+    await taken(h, '--name', 'Before the run', '--object', 'Account', '--object', 'Contact');
+    clock = T0 + 60_000;
+    h.org.add('Account', {
+      Id: id('001', 3),
+      Name: 'Made by the run',
+      LastModifiedById: COLLEAGUE,
+    });
+    for (const n of [1, 2]) {
+      h.org.add('Contact', {
+        Id: id('003', n),
+        LastName: 'Made by the run',
+        AccountId: id('001', 3),
+        LastModifiedById: COLLEAGUE,
+      });
+      h.org.add('AccountContactRelation', {
+        Id: id('07k', n),
+        AccountId: id('001', 3),
+        ContactId: id('003', n),
+        LastModifiedById: COLLEAGUE,
+      });
+    }
+    clock = T0 + 120_000;
+    const limited = ['--object', 'Contact', '--accept-outside'];
+
+    const dry = await h.run('rewind', '--org', 'DEV-SB', ...limited, '--dry-run');
+    expect(dry.code, dry.stderr).toBe(0);
+    expect(dry.stdout).toContain('  4 to delete · 0 to give back · 0 to bring back');
+    expect(dry.stdout).toContain(
+      '  also deleted with them, outside the objects named: AccountContactRelation 2 — made since',
+    );
+
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before the run',
+      ...limited,
+      '--yes',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    expect(h.org.all('Contact')).toEqual([]);
+    expect(h.org.all('AccountContactRelation')).toEqual([]);
+    const answer = JSON.parse(rewound.stdout) as RewindJson & Record<string, unknown>;
+    expect(answer).toMatchObject({ status: 'success', deleted: { planned: 4, done: 4 } });
+    expect(answer.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ object: 'AccountContactRelation', deleted: 2 }),
+        expect.objectContaining({ object: 'Contact', deleted: 2 }),
+      ]),
+    );
+    expect(rewound.stderr).toContain(
+      'deleted 4 record(s) added since the checkpoint — created, or brought back from the ' +
+        'recycle bin they were in when it was taken —, 2 of them with the record they hang from',
+    );
+    clock += 60_000;
+
+    const undo = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before the run',
+      '--yes',
+      '--json',
+    );
+    expect(undo.code, undo.stderr).toBe(0);
+    expect(h.org.all('AccountContactRelation').map((row) => row.Id)).toHaveLength(2);
+    expect(undo.stderr).toContain(
+      'it brings back 2 record(s) the rewind deleted, with the 2 that went with them',
+    );
+    expect(undo.stderr).toContain(
+      'brought back 4 record(s) the rewind deleted, 2 of them with the record they hang from',
+    );
+    expect(JSON.parse(undo.stdout)).toMatchObject({
+      broughtBack: { done: 4 },
+      result: { cameBackAlong: [{ objectApiName: 'AccountContactRelation', count: 2 }] },
+    });
+  });
 });
 
 describe('sandforge-checkpoint undo', () => {

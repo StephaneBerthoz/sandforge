@@ -494,6 +494,9 @@ const KEPT_WORDS: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
   beforeParentNotAccepted:
     "Kept: Undo couldn't bring it back once deleted before a record it points at, which the " +
     'rewind deletes next, and that was not accepted.',
+  contactKept:
+    'Kept: the relation of a contact made since to its own account, which Salesforce deletes ' +
+    'only with the contact, and the rewind left the contact.',
   keyTaken:
     'Kept in the recycle bin: a row of this custom setting made or changed since holds its ' +
     'owner or its name, and brought back beside it the setting would hold two. It comes back ' +

@@ -253,7 +253,14 @@ describe('a rewind limited to some objects, rule by rule', () => {
     expect(plan.acts).toEqual([]);
     const accepted = await planOf(t, diff.previewId, diff.readAt, ['Account'], true);
     expect(accepted.left).toEqual([]);
+    // The contact goes with its account, though contacts are not picked: said.
     expect(accepted.acts).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        picked: false,
+        toDelete: 1,
+        withParent: 1,
+      }),
       expect.objectContaining({ objectApiName: 'Account', toDelete: 1 }),
     ]);
 
@@ -269,8 +276,9 @@ describe('a rewind limited to some objects, rule by rule', () => {
     );
     expect(gone.status).toBe('success');
     expect(liveIdsOf(t, 'Account')).not.toContain(account(4));
-    // Taken along with its account, which Undo brings back with it.
+    // Taken along with its account, which Undo brings back with it: counted.
     expect(binIdsOf(t, 'Contact')).toEqual([contact(4)]);
+    expect(gone.wentAlong).toEqual([{ objectApiName: 'Contact', count: 1 }]);
   });
 
   it('keeps an account made since that a contact of the checkpoint was moved under, naming Contact to move it back first', async () => {

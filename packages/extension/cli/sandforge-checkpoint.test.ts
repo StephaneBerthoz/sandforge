@@ -6,12 +6,14 @@ import type {
   RewindDiff,
   RewindDiffObject,
   RewindResult,
+  RewindSelectionPlan,
 } from '@sandforge/shared';
 import {
   acceptanceRefusal,
   checkpointsOf,
   defaultName,
   invalidRefusal,
+  keptLines,
   listEntryJson,
   listLines,
   orgDiffers,
@@ -29,6 +31,7 @@ import {
   rewindStepsOf,
   scopeJson,
   scopeLines,
+  selectionLines,
   takeLines,
   takeRefusalWords,
   undoLine,
@@ -3185,5 +3188,91 @@ describe('resultExitCode', () => {
     expect(resultExitCode('cancelled', 'SIGHUP')).toBe(129);
     // Stopped by nothing this command sent: what it asked was not done.
     expect(resultExitCode('cancelled')).toBe(1);
+  });
+});
+
+describe('selectionLines and keptLines', () => {
+  /** A plan of a rewind limited to Contact, its acts as told. */
+  const planOf = (acts: RewindSelectionPlan['acts']): RewindSelectionPlan => ({
+    objects: ['Contact'],
+    acts,
+    left: [],
+    needs: [],
+    undoCannot: [],
+  });
+  const contacts = {
+    objectApiName: 'Contact',
+    picked: true,
+    toDelete: 1_000,
+    toGiveBack: 0,
+    toBringBack: 0,
+    toRecreate: 0,
+  };
+
+  it('says the relations that go with the contacts a rewind of contacts alone deletes, never as deleted again', () => {
+    const lines = selectionLines(
+      planOf([
+        {
+          objectApiName: 'AccountContactRelation',
+          picked: false,
+          toDelete: 1_000,
+          withParent: 1_000,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+        contacts,
+      ]),
+    );
+
+    expect(lines[0]).toBe(
+      '  limited to Contact: the other objects are left as they are, but for the records said ' +
+        'below, and what still differs in them is counted apart',
+    );
+    expect(lines).toContain(
+      '  also deleted with them, outside the objects named: AccountContactRelation 1,000 — made ' +
+        'since under the records it deletes, they go to the recycle bin with them, and an undo ' +
+        'brings them back with them',
+    );
+    expect(lines.join('\n')).not.toContain('also deletes again');
+  });
+
+  it('says apart what it deletes again and what goes with what it deletes, of one object', () => {
+    const lines = selectionLines(
+      planOf([
+        {
+          objectApiName: 'Case',
+          picked: false,
+          toDelete: 5,
+          withParent: 3,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+        contacts,
+      ]),
+    );
+
+    expect(lines.find((line) => line.startsWith('  also deletes again'))).toContain('Case 2');
+    expect(lines.find((line) => line.startsWith('  also deleted with them'))).toContain('Case 3');
+  });
+
+  it('leaves the other objects as they are, said so plainly, when it deletes nothing of them', () => {
+    expect(selectionLines(planOf([contacts]))[0]).toBe(
+      '  limited to Contact: the other objects are left as they are, and what still differs in ' +
+        'them is counted apart',
+    );
+  });
+
+  it('names a contact’s relation to its own account kept with the contact, in the words of why', () => {
+    expect(
+      keptLines({
+        left: [{ objectApiName: 'AccountContactRelation', reason: 'contactKept', count: 2 }],
+      }),
+    ).toEqual([
+      '  kept: 2 AccountContactRelation record(s) — the relation of a contact made since to its ' +
+        'own account, which Salesforce deletes only with the contact, and this rewind leaves the ' +
+        'contact: kept with it',
+    ]);
   });
 });

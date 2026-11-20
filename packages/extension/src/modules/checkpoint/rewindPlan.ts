@@ -52,6 +52,9 @@
  *   case's account, live; an entitlement's, whatever the describe says,
  *   `withRefusedParents`). Each such record is said beside that record
  *   (`beforeParent`), for the journal;
+ * - a contact's relation to its own account, the direct one, whose contact
+ *   made since this pass leaves: Salesforce deletes it only with the contact
+ *   (`contactKept`);
  * - in a checkpoint of picked objects, a record that records outside the
  *   checkpoint created since hang from, unless their deletion was accepted:
  *   the removal would take them along;
@@ -116,9 +119,11 @@
  * object, and acts on the objects picked alone, plus what rewinding them
  * brings about: the children of an object not picked created since that come
  * back with a parent it brings back go again, as leaving them would make a
- * state that never existed. It never does more than confirmed, so it never
- * extends itself to what the records picked depend on: it leaves them, and
- * names the object to add (`needs`).
+ * state that never existed; and those created since under a record it
+ * deletes go with it, once that was accepted, named beside it as what goes
+ * along of the objects picked is (`along`), and counted. It never does more
+ * than confirmed, so it never extends itself to what the records picked
+ * depend on: it leaves them, and names the object to add (`needs`).
  *
  * - A record to bring back that comes back only with a parent the rewind
  *   leaves in the bin — the parent's object not picked, or that parent left
@@ -160,6 +165,7 @@ import {
   type RewindSelectionPlan,
   type RewindUndoCannot,
 } from '@sandforge/shared';
+import { ACCOUNT_CONTACT_RELATION, CONTACT } from '../../core/common/platformRecords.js';
 import { setBackToDraftOf, type RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import type { SyncRestoreInput } from '../sync/SyncRunRestore.js';
@@ -285,6 +291,8 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   bin for good, and that Undo couldn't bring it back was not accepted;
  * - `recreateNotAccepted`: the recycle bin no longer gives it back, it would
  *   be made again with a new Id, and that its Id is new was not accepted;
+ * - `contactKept`: a contact's relation to its own account, the direct one,
+ *   whose contact stays: Salesforce deletes it only with the contact;
  * - `keyTaken`: a row of a custom setting to bring back, whose owner or name
  *   a live row made, changed or brought back since holds: brought back by the
  *   next pass, once that row is gone, and left in the bin by the last;
@@ -298,7 +306,8 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   it and hold some of its values in place, which the org refuses to give
  *   back while they are there; it is given back for the rest;
  * - `outsideNotAccepted` and `holdsLeft` as above, the records that hang from
- *   it being of an object not picked.
+ *   it being of an object not picked; `contactKept` as above, its contact
+ *   being of an object not picked.
  */
 export type RewindPlanLeftReason =
   | 'changedSincePreview'
@@ -308,6 +317,7 @@ export type RewindPlanLeftReason =
   | 'noUndoNotAccepted'
   | 'beforeParentNotAccepted'
   | 'recreateNotAccepted'
+  | 'contactKept'
   | 'keyTaken'
   | 'needsUnpickedParent'
   | 'heldByUnpicked';
@@ -324,6 +334,7 @@ const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
   keyTaken: 128,
   needsUnpickedParent: 256,
   heldByUnpicked: 512,
+  contactKept: 1024,
 };
 
 /** Records of one object a plan left for one reason. */
@@ -1085,6 +1096,11 @@ function limitedWords(reason: RewindPlanLeftReason, needs: string | undefined): 
         `Kept: records of ${of} created since hang from it, which its deletion would take along, ` +
         `and deleting them was not accepted.${add}`
       );
+    case 'contactKept':
+      return (
+        `Kept: the relation of a contact made since to its own account, which Salesforce ` +
+        `deletes only with the contact, and this rewind leaves the contact (${of}).${add}`
+      );
     default:
       return (
         `Kept: records of ${of} this rewind leaves as they are hang from it, and its deletion ` +
@@ -1300,6 +1316,12 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   // ─── A rewind of some objects: what records not picked hold ───
   /** Of the records kept for what hangs from them, by key, the object not picked that holds them. */
   const keptNeeds = new Map<string, string>();
+  /**
+   * Records of an object not picked, made since T1 and unchanged since Tr,
+   * that go with a parent the rewind deletes once that was accepted: the
+   * relations of the contacts a rewind of contacts alone deletes.
+   */
+  const alongUnpicked = new RecordKeySet();
   if (limits !== undefined) {
     /** Of the records given back, those records not picked created since hang from, said once. */
     const heldSaid = new RecordKeySet();
@@ -1320,6 +1342,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         // As the removal tells one that goes with its parent: made since T1, unchanged since Tr.
         const along =
           created && dateMs(row.CreatedDate) >= t1 && dateMs(row.LastModifiedDate) <= before;
+        if (along && input.acceptOutside) alongUnpicked.add(row.Id);
         for (const parent of cascadeOf(object, row)) {
           const deleting = toDelete.flagsOf(parent);
           if (deleting > 0) {
@@ -1405,6 +1428,29 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const parentsFirst = [...objects].reverse();
   const beforeParent: RewindPlan['beforeParent'] = [];
   const along: RewindPlan['along'] = [];
+  /**
+   * Of the contacts made or brought back since that this pass leaves, by
+   * key, the account each names: read once the contacts are planned, as the
+   * relations below them come next.
+   */
+  const stayingContacts = async (): Promise<Map<string, string>> => {
+    const made = new RecordKeySet();
+    for (const cls of DELETED) {
+      const file = classFileOf(freshDir, CONTACT, cls);
+      for await (const row of rowsOf(file)) made.add(idOf(row, file));
+    }
+    const accounts = new Map<string, string>();
+    if (made.size === 0) return accounts;
+    for await (const row of rowsOf(liveSpoolOf(freshDir, CONTACT))) {
+      const id = typeof row.Id === 'string' ? row.Id : '';
+      if (!made.has(id) || deleted(id) || goesAlong.has(id)) continue;
+      const account = row.AccountId;
+      if (typeof account === 'string' && RECORD_ID.test(account)) {
+        accounts.set(id.slice(0, 15), account.slice(0, 15));
+      }
+    }
+    return accounts;
+  };
   for (const object of parentsFirst) {
     stopped();
     const name = object.objectApiName;
@@ -1413,9 +1459,36 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     const going = new ClassLines(alongFileOf(dir, name));
     let sentBefore = 0;
     let goingAlong = 0;
+    const notPicked = limits !== undefined && !isPicked(name);
+    const contacts = name === ACCOUNT_CONTACT_RELATION ? await stayingContacts() : undefined;
     for await (const row of rowsOf(file)) {
       const id = typeof row.Id === 'string' ? row.Id : '';
-      if (!deleted(id)) continue;
+      if (!deleted(id)) {
+        // A record of an object not picked made since under a record this
+        // pass deletes goes with it, once that was accepted, and comes back
+        // with it: told as one of those picked that goes along is, or the
+        // rewind of contacts alone said 1,001 deleted where their 1,000
+        // relations had gone with them, and its undo 1,001 brought back.
+        if (notPicked && alongUnpicked.has(id)) {
+          const carriers = cascadeOf(object, row).filter(
+            (parent) => deleted(parent) || goesAlong.has(parent),
+          );
+          if (carriers.length === 0) continue;
+          const carrier = root(carriers[0]);
+          const lost =
+            carriers.some((parent) => stranded.has(parent)) ||
+            restrictOf(object, row).some(
+              (pointed) => deleted(pointed) && root(pointed) !== carrier,
+            );
+          if (lost) continue;
+          goesAlong.add(id);
+          rootOf.set(id.slice(0, 15), carrier);
+          countsOf(name).withParentDeleted++;
+          await going.add({ Id: id, parent: carrier });
+          goingAlong++;
+        }
+        continue;
+      }
       // As the removal tells a record that goes with its parent from one
       // that keeps it: created since T1, unchanged since Tr — or last changed
       // by a write of the rewind, which left the date it holds: a record
@@ -1457,6 +1530,21 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       // so it cannot go with it. So is one whose lookup restricts that
       // record's delete: the org refuses the record's delete while it lives.
       const parents = [...cascadeOf(object, row), ...restrictOf(object, row)].filter(deleted);
+      // A contact's relation to its own account, the direct one, goes only
+      // with the contact: "to remove a direct relationship between a contact
+      // and an account, change the contact's primary account or delete the
+      // contact" (Salesforce Help). That of a contact this pass leaves stays
+      // with it, never sent. Counted among what Undo couldn't bring back, the
+      // relations of two contacts a run made, kept for what outside the
+      // checkpoint hung from them, refused the rewind of every other record
+      // of the run, live.
+      if (parents.length === 0 && contacts !== undefined && directOf(row, contacts)) {
+        kept.add(id, LEFT_FLAG.contactKept);
+        if (limits !== undefined && !isPicked(CONTACT)) {
+          leaveFor(name, 'contactKept', id, CONTACT);
+        } else left.add(name, 'contactKept', id);
+        continue;
+      }
       if (object.undeletable && parents.length === 0) continue;
       const reason = parents.length > 0 ? 'beforeParentNotAccepted' : 'noUndoNotAccepted';
       if (input.acceptNoUndo) {
@@ -1772,6 +1860,7 @@ const SELECTION_LEFT: ReadonlySet<RewindPlanLeftReason> = new Set<RewindSelectio
   'heldByUnpicked',
   'outsideNotAccepted',
   'holdsLeft',
+  'contactKept',
   'keyTaken',
 ]);
 
@@ -1889,6 +1978,19 @@ export async function planSelection(input: SelectionPlanInput): Promise<RewindSe
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Whether `row`, a relation between a contact and an account, is the direct
+ * one of a contact of `contacts` — by key, the account each names: the
+ * relation to that very account. A contact holds one relation to each
+ * account, so the pair tells it, as `IsDirect` would, without reading it.
+ */
+function directOf(row: OrgRow, contacts: ReadonlyMap<string, string>): boolean {
+  const { ContactId: contactId, AccountId: accountId } = row;
+  if (typeof contactId !== 'string' || typeof accountId !== 'string') return false;
+  const account = contacts.get(contactId.slice(0, 15));
+  return account !== undefined && account === accountId.slice(0, 15);
 }
 
 /**
