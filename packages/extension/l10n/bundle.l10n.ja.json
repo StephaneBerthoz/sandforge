@@ -105,6 +105,7 @@
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "これらはデータストレージを約 {0} MB 使用します。{1} の残り容量を読み取れなかったため ({2})、収まるかどうかはわかりません。",
   "They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.": "これらはデータストレージを約 {0} MB 使用します。{1} は実行で書き込むユーザーに残り容量を伝えないため、収まるかどうかはわかりません。",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "これらはデータストレージを約 {0} MB 使用します。{1} の残りは {3} MB 中 {2} MB です。",
+  "Of what {0} says it has left, about {1} MB is taken by what runs from this machine wrote to it in the last {2} minutes, or are still writing, which Salesforce has not counted yet: it is taken off what is left.": "{0} が示す残り容量のうち約 {1} MB は、このマシンからの実行が直近 {2} 分間に書き込んだ、またはまだ書き込み中で、Salesforce がまだ反映していない分です：残り容量から差し引いています。",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "残りの 80% を超えています。Salesforce はロード後しばらくしてからストレージを集計するため、実際の残りは表示より少ない場合があります。",
   "The records have been read, and nothing has been written yet.": "レコードは読み取り済みで、まだ何も書き込んでいません。",
   "The records have been counted, and nothing has been read or written yet.": "レコードは件数を数えただけで、まだ何も読み取りも書き込みもしていません。",

@@ -27,6 +27,7 @@ import {
   type AutopilotOrchestratorDeps,
 } from '../../modules/autopilot/AutopilotOrchestrator.js';
 import { RecordIdRemapper } from '../../modules/autopilot/RecordIdRemapper.js';
+import { uncountedWritesOf } from '../../modules/forge/storageWritten.js';
 import type { SmartAnonymizer } from '../../modules/autopilot/SmartAnonymizer.js';
 import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
 
@@ -184,6 +185,8 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
     batchSize: number;
     /** What else the executor is given of the two orgs. */
     orgs?: Partial<AutopilotExecutorDeps>;
+    /** The target, by its id: `tgt` unless said. */
+    targetOrgId?: string;
   }): Promise<{ running: Promise<boolean>; result: () => ExecutionResult | undefined }> {
     const anonymizer = {
       anonymize: vi.fn((records: Record<string, unknown>[]) => records),
@@ -228,7 +231,7 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
         timestamp: Date.now(),
         payload: {
           sourceOrgId: 'src',
-          targetOrgId: 'tgt',
+          targetOrgId: options.targetOrgId ?? 'tgt',
           selectedObjects: [],
           includeStandardObjects: false,
         },
@@ -722,5 +725,33 @@ describe('AutopilotHandler — the status each node of a run ends on', () => {
       expect(entry?.outcome).toBe('success');
       expect(entry?.objects).toEqual([expect.not.objectContaining({ lookupsNotFilled: 1 })]);
     });
+  });
+
+  it('notes, before its first write, what its gate let it through to write, for a gate of the same target until it ends', async () => {
+    // Two runs into one org at once did not see each other: the second's
+    // gate read room the first was about to take.
+    const target = '00D000000000009AAB';
+    const sized = (_object: string, rows: number): number => rows * 2 * 1024;
+    const rows = { Account: [{ Id: 'acc1', Name: 'Acme' }] };
+    let whileWriting: ReturnType<typeof uncountedWritesOf>;
+    const { running } = await startRun({
+      id: 'exec-begun',
+      plan: planOf(['Account']),
+      rows,
+      edges: [],
+      batchSize: 200,
+      query: sourceOf(rows),
+      insert: (_objectApiName, records) => {
+        whileWriting = uncountedWritesOf(target, 150, sized);
+        return records.map((_, i) => ({ id: `001T${i}`, success: true, errors: [] }));
+      },
+      targetOrgId: target,
+    });
+    await running;
+
+    expect(whileWriting).toMatchObject({ runs: 1, writing: 1 });
+    // Ended: what it wrote, no longer as still writing.
+    expect(uncountedWritesOf(target, 150, sized)).toMatchObject({ runs: 1 });
+    expect(uncountedWritesOf(target, 150, sized)).not.toHaveProperty('writing');
   });
 });

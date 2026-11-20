@@ -352,6 +352,7 @@ const stopSchema = z.object({
           mb: z.number().positive(),
           runs: z.number().int().nonnegative(),
           minutes: z.number().int().positive(),
+          writing: z.number().int().positive().optional(),
         })
         .optional(),
       roundingMB: z.number().positive().optional(),

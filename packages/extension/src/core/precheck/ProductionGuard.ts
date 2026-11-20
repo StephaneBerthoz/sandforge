@@ -8,6 +8,7 @@ import type {
   ForgeSampleWindow,
   RunCheckpointEstimate,
   RunDeliverability,
+  UncountedWrites,
   WholeOrgSampleDrawnAgain,
   WholeOrgSampleLimit,
 } from '@sandforge/shared';
@@ -213,6 +214,12 @@ export type WriteConfirmationStorage =
       remainingMB: number;
       /** Whether the rows take more than 80 % of what is left. */
       near: boolean;
+      /**
+       * Of `remainingMB`, what runs from this machine wrote to the org, or
+       * are still writing, that it has not counted yet: taken off as the
+       * verdict was given, and said by the question. Absent when nothing is.
+       */
+      uncountedWrites?: UncountedWrites;
     }
   | { estimateMB: number; unread: string };
 

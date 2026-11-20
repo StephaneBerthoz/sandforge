@@ -102,8 +102,8 @@ describe('fitBudgetOf', () => {
     // after a load, 2 only 384 seconds after it.
     expect(storageRecountWords('DEV')).toBe(
       'Salesforce can take several minutes to count a load in what DEV says it has left: what ' +
-        'runs from this machine wrote to it in the last 10 minutes and it has not counted yet is ' +
-        'taken off, a load from anywhere else is not',
+        'runs from this machine wrote to it in the last 10 minutes, or are still writing, and it ' +
+        'has not counted yet is taken off, a load from anywhere else is not',
     );
     expect(storageRecountWords('DEV')).not.toMatch(/\d+ seconds/);
   });
@@ -121,7 +121,8 @@ describe('fitBudgetOf', () => {
     });
     // And its line says it, beside the rounding.
     expect(uncountedFitWords({ uncountedMB: 2 })).toBe(
-      ', 2 MB for what runs from this machine wrote to it that Salesforce has not counted yet',
+      ', 2 MB for what runs from this machine wrote to it, or are still writing, that ' +
+        'Salesforce has not counted yet',
     );
     expect(uncountedFitWords({})).toBe('');
   });

@@ -12,7 +12,7 @@ import type {
   RunDeliverability,
   UncountedWrites,
 } from '@sandforge/shared';
-import { recordWriteHeaders, guardTierOf, orgDisplayName } from '@sandforge/shared';
+import { BYTES_PER_MB, recordWriteHeaders, guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -79,7 +79,7 @@ import {
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
-import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
@@ -1337,6 +1337,16 @@ export class SeedCloneHandler implements DomainHandler {
       // Listed in Live Operations while it runs, where Cancel reaches the
       // registry's controller above, as a Sync or a Seed run is.
       this.liveTracker?.register(operationId, 'clone', `Clone ${parsed.objects.length} object(s)`);
+      // What it is about to write, for a gate of the same target to take off
+      // until its entry ends it: two runs into one org at once did not see
+      // each other.
+      noteRunBegun(
+        run,
+        counted.reduce(
+          (sum, o) => sum + countedStorageBytes(o.objectApiName, { rows: o.recordCount }),
+          0,
+        ) / BYTES_PER_MB,
+      );
 
       // The checkpoint, taken once the question was answered, as close to the
       // first record as it can be, under the clone's Cancel: refused, failed

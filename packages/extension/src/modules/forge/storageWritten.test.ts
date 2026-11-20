@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   UNCOUNTED_WINDOW_MINUTES,
+  noteStorageBegun,
   noteStorageSaid,
   noteStorageWritten,
   storageWrittenDirOf,
@@ -136,6 +137,141 @@ describe('what runs from this machine wrote to an org that its /limits has not c
 
       expect(uncountedWritesOf(ORG, 499, bytesOf, { dir, now: utc('14:29:49') })).toBeUndefined();
       expect(uncountedWritesOf(ORG, 500, bytesOf, { dir, now: utc('14:30:10') })).toBeUndefined();
+    });
+
+    it('names the run written after a run and its removal, no gate between them, as the one it takes off', () => {
+      // Run for real: A, its removal and A2 within three minutes, nothing
+      // said between them, the org still at 500 as the seed's gate read it.
+      // It took off 1.06 MB, rightly, but said "what 2 runs … in the last 3
+      // minute(s)": A and its removal cancel each other.
+      noteStorageSaid(ORG, 500, { dir, now: utc('15:21:00') });
+      noteStorageWritten(ORG, RUN, { dir, now: utc('15:22:51') });
+      noteStorageWritten(ORG, REMOVED, { dir, now: utc('15:23:50') });
+      noteStorageWritten(ORG, RUN, { dir, now: utc('15:25:20') });
+
+      const uncounted = uncountedWritesOf(ORG, 500, bytesOf, { dir, now: utc('15:25:39') });
+      expect(uncounted).toMatchObject({ runs: 1, minutes: 1 });
+      expect(uncounted?.mb).toBeCloseTo(RUN_MB, 6);
+    });
+  });
+
+  describe('a run its gate let through, still writing', () => {
+    /** The run's process, gone or not, as the gate that reads its note asks. */
+    const alive = (running: boolean) => () => running;
+
+    it('takes off what a run let through is to write while it writes, and what it wrote once it ends', () => {
+      noteStorageSaid(ORG, 5, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 2, { dir, now: at(0) });
+
+      // A second run's gate, a minute into the first: nothing ended, nothing counted.
+      expect(uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(1), alive: alive(true) })).toEqual({
+        mb: 2,
+        runs: 1,
+        minutes: 1,
+        writing: 1,
+      });
+      noteStorageWritten(ORG, { Contact: 2 * RECORDS_PER_MB }, { dir, now: at(3), run: 'run-a' });
+      expect(uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(4), alive: alive(true) })).toEqual({
+        mb: 2,
+        runs: 1,
+        minutes: 1,
+      });
+    });
+
+    it('takes off what the org has not counted of a run still writing, its part counted since it began left out', () => {
+      noteStorageSaid(ORG, 500, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 30, { dir, now: at(0) });
+
+      // 20 of its 30 MB written and counted: 480 left, 10 MB still to come.
+      expect(uncountedWritesOf(ORG, 480, bytesOf, { dir, now: at(4), alive: alive(true) })).toEqual(
+        { mb: 10, runs: 1, minutes: 4, writing: 1 },
+      );
+    });
+
+    it('takes off both runs when two write at once, one ended and one still writing', () => {
+      noteStorageSaid(ORG, 50, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 10, { dir, now: at(0) });
+      noteStorageSaid(ORG, 50, { dir, now: at(1) });
+      noteStorageBegun(ORG, 'run-b', 4, { dir, now: at(1) });
+      noteStorageWritten(ORG, { Contact: 4 * RECORDS_PER_MB }, { dir, now: at(2), run: 'run-b' });
+
+      expect(uncountedWritesOf(ORG, 50, bytesOf, { dir, now: at(3), alive: alive(true) })).toEqual({
+        mb: 14,
+        runs: 2,
+        minutes: 3,
+        writing: 1,
+      });
+    });
+
+    it('counts, past the window, a run still writing against the runs that ended since it began', () => {
+      // A run of the whole org writes for an hour; a seed into the same org
+      // ended twenty minutes in, counted since.
+      noteStorageSaid(ORG, 500, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 100, { dir, now: at(0) });
+      noteStorageWritten(ORG, { Contact: 5 * RECORDS_PER_MB }, { dir, now: at(20) });
+
+      // 500 → 435: the seed's 5 MB and 60 of the clone's.
+      expect(
+        uncountedWritesOf(ORG, 435, bytesOf, { dir, now: at(45), alive: alive(true) }),
+      ).toEqual({ mb: 40, runs: 1, minutes: 45, writing: 1 });
+    });
+
+    it('holds a run that ended past the window as counted, however little the org has dropped since', () => {
+      noteStorageSaid(ORG, 500, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 100, { dir, now: at(0) });
+      noteStorageWritten(ORG, { Contact: 5 * RECORDS_PER_MB }, { dir, now: at(20) });
+
+      // 2 MB less said, past the window of the seed's end: the seed is not
+      // named again, and the clone still writing is taken off whole.
+      expect(
+        uncountedWritesOf(ORG, 498, bytesOf, { dir, now: at(45), alive: alive(true) }),
+      ).toEqual({ mb: 100, runs: 1, minutes: 45, writing: 1 });
+    });
+
+    it('takes nothing off for a run that ended having written nothing', () => {
+      noteStorageSaid(ORG, 5, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 2, { dir, now: at(0) });
+      noteStorageWritten(ORG, {}, { dir, now: at(1), run: 'run-a' });
+
+      expect(
+        uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(2), alive: alive(true) }),
+      ).toBeUndefined();
+    });
+
+    it('takes nothing off for a run whose process is gone without saying it ended', () => {
+      noteStorageSaid(ORG, 5, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 2, { dir, now: at(0) });
+
+      expect(
+        uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(1), alive: alive(false) }),
+      ).toBeUndefined();
+    });
+
+    it('reads its own process as running, and one no process answers as gone', () => {
+      noteStorageSaid(ORG, 5, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 2, { dir, now: at(0) });
+
+      expect(uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(1) })?.writing).toBe(1);
+      const file = join(dir, `${ORG.slice(0, 15)}.ndjson`);
+      const lines = readFileSync(file, 'utf8').replace(`"pid":${process.pid}`, '"pid":2147483646');
+      writeFileSync(file, lines);
+      expect(uncountedWritesOf(ORG, 5, bytesOf, { dir, now: at(1) })).toBeUndefined();
+    });
+
+    it('keeps what a run still writing began with once its file is rewritten as it grows', () => {
+      noteStorageSaid(ORG, 500, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 30, { dir, now: at(0) });
+      for (let n = 1; n <= 300; n++) noteStorageSaid(ORG, 500, { dir, now: at(n / 10) });
+
+      expect(
+        uncountedWritesOf(ORG, 500, bytesOf, { dir, now: at(31), alive: alive(true) }),
+      ).toMatchObject({ mb: 30, writing: 1 });
+    });
+
+    it('keeps no note of what a run began with nothing to write', () => {
+      noteStorageBegun(ORG, 'run-a', 0, { dir, now: at(0) });
+
+      expect(() => readFileSync(join(dir, `${ORG.slice(0, 15)}.ndjson`), 'utf8')).toThrow();
     });
   });
 

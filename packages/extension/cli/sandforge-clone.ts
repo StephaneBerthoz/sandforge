@@ -325,6 +325,7 @@ import { readRunUser } from '../src/modules/sync/runUser.js';
 import { SEED_RUNS_DIR } from '../src/modules/seed/SeedRunCreations.js';
 import {
   ABORTED_BEFORE_START,
+  noteRunBegun,
   noteRunWritten,
   recordWriteRun,
 } from '../src/modules/audit/auditTrail.js';
@@ -14235,6 +14236,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         .slice(1)
         .map(({ code, message }) => ({ code, message: words(message) }));
       throw new ForgeRunGateError(refusals[0].code, words(refusals[0].message));
+    }
+    // Let through: what it is about to write, for a gate of the same target
+    // to take off until the run's entry ends it, as the panel notes it. Two
+    // runs into one org at once did not see each other.
+    if (targetOrgId !== undefined && !args.rehearse) {
+      noteRunBegun({ action: 'forge_execute', orgId: targetOrgId, operationId }, check.estimateMB);
     }
   };
 

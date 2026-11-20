@@ -31,6 +31,7 @@ import {
 import { RunVerifier } from '../src/modules/forge/RunVerifier.js';
 import type { ExecutionSummary } from '../src/modules/forge/ForgeExecutor.js';
 import { openRootPlan } from '../src/modules/forge/roots/rootPlanStore.js';
+import { storageWrittenDirOf } from '../src/modules/forge/storageWritten.js';
 import {
   ROWS,
   TARGET_ORG,
@@ -940,6 +941,36 @@ describe('a clone from records weighed before it writes', () => {
       '  data storage of TGT: 2 MB left of 5 MB (about 1.2 MB of it taken by what a run from ' +
         'this machine wrote to TGT in the last 1 minute(s), which Salesforce has not counted yet)',
     );
+  });
+
+  it('notes, once its gate lets it through, what it is about to write, and its end closes it under the same run', async () => {
+    // Two runs into one target at once did not see each other: the first
+    // noted what it wrote as it ended, the second's gate read room it took.
+    withOrgs(volumeSource(41, 1_200), undefined, { limits: fiveMegabytes(2) });
+    vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+      alias,
+      username: '',
+      instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+      accessToken: 'token',
+      ...(alias === 'TGT' ? { orgId: TARGET_ORG } : {}),
+    }));
+    const first = Array.from({ length: 20 }, (_, n) => ['--record', sourceId('001', 101 + n)]);
+    expect(await run(argv(undefined, ...first.flat()))).toBeUndefined();
+
+    const notes = readFileSync(
+      join(storageWrittenDirOf(), `${TARGET_ORG.slice(0, 15)}.ndjson`),
+      'utf8',
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const begun = notes.findIndex((note) => 'begunMB' in note);
+    expect(begun).toBeGreaterThan(-1);
+    expect(notes[begun]).toMatchObject({ run: expect.stringMatching(/^sandforge-clone-/) });
+    expect(notes[begun]?.['begunMB']).toBeCloseTo(1.2, 1);
+    expect(notes.slice(begun + 1)).toEqual([
+      expect.objectContaining({ run: notes[begun]?.['run'], wrote: expect.any(Object) }),
+    ]);
   });
 
   it('says when one of its roots alone takes more than --max-total, and offers no LIMIT', async () => {

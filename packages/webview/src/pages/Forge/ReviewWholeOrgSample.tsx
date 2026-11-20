@@ -17,6 +17,7 @@ import {
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { formatEstimateSec } from '../../utils/formatters';
+import { storageCountedWords } from '../../utils/storageCounted';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { allowanceWords } from './ForgeWholeOrgDryRun';
@@ -140,12 +141,21 @@ function wholeOrgWords(
   if (check.verdict === 'unread') {
     return t('forgeRun.review.sample.wholeOrg.unread', { estimate, target, reason: check.unread });
   }
-  const said = t(`forgeRun.review.sample.wholeOrg.${check.verdict}`, {
-    estimate,
-    target,
-    remaining: n(check.remainingMB),
-    max: n(check.maxMB),
-  });
+  const said =
+    t(`forgeRun.review.sample.wholeOrg.${check.verdict}`, {
+      estimate,
+      target,
+      remaining: n(check.remainingMB),
+      max: n(check.maxMB),
+    }) +
+    // What runs from this machine wrote that the target has not counted yet,
+    // taken off what it says: 3 MB of 5 MB said left read as 60 % beside
+    // "more than 80 % of what is left".
+    storageCountedWords(
+      check.uncountedWrites ? { uncountedWrites: check.uncountedWrites } : undefined,
+      (key, options) => t(key, options),
+      (mb) => n(Math.ceil(mb * 100) / 100),
+    );
   return check.verdict === 'exceeds' && budget
     ? `${said} ${t('forgeRun.review.sample.wholeOrg.offer', { mb: mbOf(budget.bytes) })}`
     : said;

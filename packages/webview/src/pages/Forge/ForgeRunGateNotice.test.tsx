@@ -76,7 +76,7 @@ describe('ForgeRunGateNotice', () => {
 
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
       'The run was refused before it wrote anything: its records take about 3 MB of data storage, and the target org has 5 MB left. Leave objects out, lower the records per object, or free data storage in the target org. ' +
-        'Of what the org says it has left, about 2.1 MB is taken by what runs from this machine wrote to it in the last 10 minutes, which Salesforce has not counted yet. ' +
+        'Of what the org says it has left, about 2.1 MB is taken by what runs from this machine wrote to it in the last 10 minutes, or are still writing, which Salesforce has not counted yet. ' +
         'Salesforce says what is left rounded to the MB: up to 0.5 MB of it may be taken already.',
     );
   });

@@ -7,6 +7,7 @@ import {
   type ForgeGraphNode,
   type ForgeTargetAutomation,
   type ForgeTargetFlow,
+  type UncountedWrites,
 } from '@sandforge/shared';
 import {
   API_REQUESTS_NOT_TOLD,
@@ -1186,6 +1187,32 @@ describe('storageCheckOf', () => {
       estimateMB: 1,
       unread: 'refused',
     });
+  });
+
+  it('gives the question near what is left what runs from this machine wrote that the org has not counted yet', () => {
+    // 3 MB against 5 MB said left is near only once the 1.2 MB a run just
+    // wrote is taken off: the question said 5 MB left, and nothing of it.
+    const uncountedWrites = { mb: 1.2, runs: 1, minutes: 1 };
+    expect(
+      confirmationStorageOf(storageCheckOf(plan(3), { maxMB: 5, remainingMB: 5, uncountedWrites })),
+    ).toEqual({ estimateMB: 3, maxMB: 5, remainingMB: 5, near: true, uncountedWrites });
+  });
+
+  it('names a run still writing apart from those that ended', () => {
+    const words = (uncountedWrites: UncountedWrites): string =>
+      storageRefusal(
+        storageCheckOf(plan(4), { maxMB: 5, remainingMB: 5, uncountedWrites }),
+        'TGT',
+      ) ?? '';
+
+    expect(words({ mb: 2, runs: 1, minutes: 3, writing: 1 })).toContain(
+      '(about 2 MB of it taken by what a run from this machine is still writing to TGT, begun 3 ' +
+        'minute(s) ago, which Salesforce has not counted yet)',
+    );
+    expect(words({ mb: 2, runs: 3, minutes: 4, writing: 1 })).toContain(
+      '(about 2 MB of it taken by what 3 runs from this machine wrote to TGT in the last 4 ' +
+        'minute(s), 1 of them still writing, which Salesforce has not counted yet)',
+    );
   });
 });
 

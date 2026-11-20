@@ -27,7 +27,13 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
+import {
+  noteStorageBegun,
+  noteStorageSaid,
+  uncountedWritesOf,
+} from '../src/modules/forge/storageWritten.js';
 import { main, seedInterruptedLine, seedWritePathOf } from './sandforge-seed.js';
+import { SeedOrchestrator } from '../src/modules/seed/SeedOrchestrator.js';
 import { targetAutomationReader } from './sandforge-clone.js';
 import type { BulkJobHandle } from '../src/core/engine/BulkApiExecutor.js';
 
@@ -555,6 +561,84 @@ describe('a seed from the command line', () => {
     expect(memory.all('Asset')).toEqual([]);
     expect(JSON.parse(stdout.join(''))).toMatchObject({
       result: { status: 'success', planned: 50 },
+    });
+  });
+
+  describe('what it writes, for the next storage gate of its org', () => {
+    /** The org's own id, as its Organization record and `sf org display` give it. */
+    const ORG_ID = '00D000000000002AAA';
+    /** 2 KB an Asset, as the gate sizes it. */
+    const bytesOf = (_object: string, rows: number): number => rows * 2 * 1024;
+    /** An org of `fakeOrg` whose `/limits` say 150 MB left of 200. */
+    const orgWithLimits = (onCreate?: () => void | Promise<void>) => {
+      const org = fakeOrg(onCreate);
+      (org.conn as unknown as Record<string, unknown>).request = async (
+        request: string | { url?: string },
+      ) =>
+        (typeof request === 'string' ? request : request.url) === '/limits'
+          ? { DataStorageMB: { Max: 200, Remaining: 150 } }
+          : {};
+      return org;
+    };
+
+    beforeEach(() => {
+      vi.mocked(loadOrg).mockResolvedValue({ alias: 'TGT', orgId: ORG_ID } as never);
+    });
+
+    it('notes before its first write what its gate let it through to write, and its end closes it', async () => {
+      // Two seeds into one org at once did not see each other: the second's
+      // gate read the room the first was about to take.
+      let whileWriting: ReturnType<typeof uncountedWritesOf>;
+      orgWithLimits(() => {
+        whileWriting ??= uncountedWritesOf(ORG_ID, 150, bytesOf);
+      });
+
+      await main(argv(100, '--json'));
+
+      expect(whileWriting).toMatchObject({ runs: 1, writing: 1 });
+      expect(whileWriting?.mb).toBeCloseTo((100 * 2) / 1024, 6);
+      // Ended: what it wrote, no longer as still writing.
+      expect(uncountedWritesOf(ORG_ID, 150, bytesOf)).toEqual({
+        mb: (100 * 2) / 1024,
+        runs: 1,
+        minutes: 1,
+      });
+    });
+
+    it('takes off, at its gate, what a seed from this machine is still writing to the same org', async () => {
+      orgWithLimits();
+      noteStorageSaid(ORG_ID, 150);
+      noteStorageBegun(ORG_ID, 'another-seed', 3);
+
+      await main(argv(100, '--dry-run'));
+
+      expect(stdout.join('')).toContain(
+        'TGT has 150 MB left of 200 MB (about 3 MB of it taken by what a run from this machine ' +
+          'is still writing to TGT, begun 1 minute(s) ago, which Salesforce has not counted yet)',
+      );
+    });
+
+    it('notes what a seed that stopped on an error wrote, as its file keeps it', async () => {
+      // Its records were in the org and noted nowhere: the next gate of the
+      // org read room the seed had taken.
+      orgWithLimits();
+      const execute = SeedOrchestrator.prototype.execute;
+      vi.spyOn(SeedOrchestrator.prototype, 'execute').mockImplementation(async function (
+        this: SeedOrchestrator,
+        ...args: Parameters<SeedOrchestrator['execute']>
+      ) {
+        await execute.apply(this, args);
+        throw new Error('ENOSPC: no space left on device');
+      });
+
+      await expect(main(argv(100, '--batch-size', '50', '--json'))).rejects.toThrow('ENOSPC');
+
+      expect(stderr.join('')).toContain('the seed stopped on an error');
+      expect(uncountedWritesOf(ORG_ID, 150, bytesOf)).toEqual({
+        mb: (100 * 2) / 1024,
+        runs: 1,
+        minutes: 1,
+      });
     });
   });
 

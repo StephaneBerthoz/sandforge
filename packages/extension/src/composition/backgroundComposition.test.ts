@@ -1542,6 +1542,38 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     );
   });
 
+  it('says, near what is left, what runs from this machine wrote that the org has not counted yet, which the share is of what is left without', () => {
+    // 3 MB of rows against 5 MB said left read as 60 %: the gate had taken
+    // off the 1.2 MB a run had just written, and asked near what was left.
+    const question = {
+      ...write,
+      storage: {
+        estimateMB: 3,
+        maxMB: 5,
+        remainingMB: 5,
+        near: true,
+        uncountedWrites: { mb: 1.2, runs: 2, minutes: 4, writing: 1 },
+      },
+    };
+    const lines = runQuestionDetail(question).split('\n');
+
+    const said = lines.indexOf('They take about 3 MB of data storage; DEV has 5 MB left of 5 MB.');
+    expect(lines.slice(said, said + 3)).toEqual([
+      'They take about 3 MB of data storage; DEV has 5 MB left of 5 MB.',
+      'Of what DEV says it has left, about 1.2 MB is taken by what runs from this machine wrote to it in the last 10 minutes, or are still writing, which Salesforce has not counted yet: it is taken off what is left.',
+      'That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.',
+    ]);
+    expect(
+      runQuestionDetail({ ...write, storage: { ...question.storage, uncountedWrites: undefined } }),
+    ).not.toContain('from this machine');
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(runQuestionDetail(question)).toContain(
+      "Sur ce que DEV dit lui rester, environ 1.2 Mo sont pris par ce que des exécutions lancées depuis cette machine y ont écrit ces 10 dernières minutes, ou y écrivent encore, et que Salesforce n'a pas encore compté : c'est retiré de ce qui reste.",
+    );
+  });
+
   it("says in the question's language that the target does not tell a Standard User its storage", () => {
     // Its `/limits` leave the storage out: the question quoted the reason the
     // command line prints, English in every language.

@@ -142,6 +142,27 @@ describe('ReviewWholeOrgSample', () => {
     );
   });
 
+  it('says, near what the target has left, what runs from this machine wrote to it that it has not counted yet', () => {
+    // 3 MB of 5 MB said left read as 60 %: the 1.2 MB a run had just
+    // written was taken off before the line said "more than 80 %".
+    renderBlock();
+    answer(
+      sampleBudget({
+        wholeOrg: {
+          verdict: 'near',
+          estimateMB: 3,
+          maxMB: 5,
+          remainingMB: 5,
+          uncountedWrites: { mb: 1.2, runs: 1, minutes: 2, writing: 1 },
+        },
+      }),
+    );
+
+    expect(screen.getByTestId('review-sample-whole-org').textContent).toBe(
+      'Every record takes about 3 MB of the data storage of dev, which has 5 MB left out of 5 MB: more than 80 % of what is left. Of what the org says it has left, about 1.2 MB is taken by what runs from this machine wrote to it in the last 10 minutes, or are still writing, which Salesforce has not counted yet.',
+    );
+  });
+
   it('says why what is left could not be read', () => {
     renderBlock();
     refuse('INVALID_SESSION_ID');

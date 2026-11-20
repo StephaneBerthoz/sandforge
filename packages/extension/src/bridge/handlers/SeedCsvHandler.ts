@@ -77,7 +77,7 @@ import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
-import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
@@ -785,6 +785,10 @@ export class SeedCsvHandler implements DomainHandler {
         `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
         parsed.records.length,
       );
+      // What it is about to write, for a gate of the same org to take off
+      // until its entry ends it: two runs into one org at once did not see
+      // each other.
+      noteRunBegun(run, storage.estimateMB);
 
       // The checkpoint, taken once the question was answered, as close to the
       // first row as it can be, under the import's Cancel: refused, failed or

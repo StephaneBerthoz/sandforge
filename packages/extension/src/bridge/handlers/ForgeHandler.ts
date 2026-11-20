@@ -231,7 +231,7 @@ import {
   type DeliverabilityRead,
   type RunEmails,
 } from '../../modules/forge/targetDeliverability.js';
-import { recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
+import { noteRunBegun, recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
   auditTalliesOf,
@@ -3828,6 +3828,7 @@ export class ForgeHandler implements DomainHandler {
       const writeGate = this.writeGate({
         guard,
         targetOrgId: config.targetOrgId,
+        operationId,
         org: targetName,
         source: orgDisplayName(this.deps.orgManager.getOrg(config.sourceOrgId), config.sourceOrgId),
         orgTier,
@@ -5554,6 +5555,11 @@ export class ForgeHandler implements DomainHandler {
   private writeGate(run: {
     guard: ProductionGuard;
     targetOrgId: string;
+    /**
+     * The run's operation, which its audit entry ends: let through, what it
+     * is about to write is noted under it for a gate of the same target.
+     */
+    operationId: string;
     org: string;
     /** The source, as the user knows it: named by the question of a clone from records. */
     source: string;
@@ -5916,6 +5922,14 @@ export class ForgeHandler implements DomainHandler {
         }
         first.onTaken(took.checkpoint);
       };
+      // Let through, what it is about to write is noted for a gate of the
+      // same target to take off until the run's entry ends it: two runs into
+      // one org at once did not see each other.
+      const begin = (): void =>
+        noteRunBegun(
+          { action: 'forge_execute', orgId: run.targetOrgId, operationId: run.operationId },
+          storage.estimateMB,
+        );
       // The emails the target's flows send as these records go in, against
       // what it has left today: read only when they send some. Past it, a
       // record whose flow fails in the save is refused; the user is asked. A
@@ -5989,6 +6003,7 @@ export class ForgeHandler implements DomainHandler {
         !requests.asks
       ) {
         await takeFirst();
+        begin();
         return allowed;
       }
       const answer = await run.guard.confirmRun({
@@ -6032,6 +6047,7 @@ export class ForgeHandler implements DomainHandler {
       if (answer === 'confirmed') {
         run.onConfirmed();
         await takeFirst();
+        begin();
         return allowed;
       }
       throw answer === 'declined'

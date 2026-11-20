@@ -1901,7 +1901,9 @@ export interface StorageCounted {
  * {@link storageCountedOf} in words, in brackets after what the target says
  * it has left: "(about 2.1 MB of it taken by what a run from this machine
  * wrote to TGT in the last 2 minute(s), which Salesforce has not counted
- * yet)". Nothing when the gate counted nothing off.
+ * yet)", and of a run still writing, "what a run from this machine is still
+ * writing to TGT, begun 2 minute(s) ago". Nothing when the gate counted
+ * nothing off.
  */
 export function storageCountedWords(counted: StorageCounted, target: string): string {
   const { uncountedWrites, roundingMB } = counted;
@@ -1909,9 +1911,7 @@ export function storageCountedWords(counted: StorageCounted, target: string): st
     ...(uncountedWrites
       ? [
           `about ${formatMB(uncountedWrites.mb)} MB of it taken by what ` +
-            `${uncountedWrites.runs === 1 ? 'a run' : `${uncountedWrites.runs} runs`} from this machine ` +
-            `wrote to ${target} in the last ${uncountedWrites.minutes} minute(s), which Salesforce ` +
-            'has not counted yet',
+            `${uncountedWritesWords(uncountedWrites, target)}, which Salesforce has not counted yet`,
         ]
       : []),
     ...(roundingMB !== undefined
@@ -1919,6 +1919,25 @@ export function storageCountedWords(counted: StorageCounted, target: string): st
       : []),
   ];
   return said.length > 0 ? ` (${said.join('; ')})` : '';
+}
+
+/**
+ * The runs whose writes a gate took off, as its brackets name them: "a run
+ * from this machine wrote to TGT in the last 2 minute(s)"; one still writing,
+ * "a run from this machine is still writing to TGT, begun 2 minute(s) ago";
+ * of several, "3 runs from this machine wrote to TGT in the last 2 minute(s),
+ * 1 of them still writing".
+ */
+function uncountedWritesWords(uncounted: UncountedWrites, target: string): string {
+  const { runs, minutes, writing = 0 } = uncounted;
+  if (runs === 1 && writing === 1) {
+    return `a run from this machine is still writing to ${target}, begun ${minutes} minute(s) ago`;
+  }
+  return (
+    `${runs === 1 ? 'a run' : `${runs} runs`} from this machine wrote to ${target} in the last ` +
+    `${minutes} minute(s)` +
+    (writing > 0 ? `, ${writing} of them still writing` : '')
+  );
 }
 
 /**
@@ -3564,7 +3583,12 @@ export function deliverabilityAfterLeaseStop(input: {
   };
 }
 
-/** The storage of a check, as the confirmation says it. */
+/**
+ * The storage of a check, as the confirmation says it: with what runs from
+ * this machine wrote that the target has not counted yet, which the verdict
+ * took off. Without it, a question near what the target has left said "5 MB
+ * left" of rows that took 3, and "more than 80% of what is left".
+ */
 export function confirmationStorageOf(check: StorageCheck): WriteConfirmationStorage {
   return check.verdict === 'unread'
     ? { estimateMB: check.estimateMB, unread: check.unread }
@@ -3573,6 +3597,7 @@ export function confirmationStorageOf(check: StorageCheck): WriteConfirmationSto
         maxMB: check.maxMB,
         remainingMB: check.remainingMB,
         near: check.verdict === 'near',
+        ...(check.uncountedWrites ? { uncountedWrites: check.uncountedWrites } : {}),
       };
 }
 

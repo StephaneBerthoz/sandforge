@@ -172,7 +172,7 @@ import {
 } from '../../modules/seed/seedAutomation.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
-import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { isUncopyableObject } from '@sandforge/shared';
 import type { ToolingQueries } from '../../modules/seed/scenario/scenarioOrg.js';
@@ -416,6 +416,8 @@ interface SeedCleared {
   /** What the run runs with: the template as the org takes it, and its locale. */
   run: SeedRunPayload;
   plannedRecords: number;
+  /** The data storage its gate let it through to take, in MB. */
+  storageMB: number;
   guardDecision: GuardDecision;
   /** What the org runs as the records are created, or why it could not be read. */
   automation: SeedAutomationRead;
@@ -2231,6 +2233,7 @@ export class SeedOpsHandler implements DomainHandler {
       conn,
       run: payload,
       plannedRecords,
+      storageMB: storage.check.estimateMB,
       guardDecision: decision,
       automation,
       orgName,
@@ -2262,6 +2265,13 @@ export class SeedOpsHandler implements DomainHandler {
     sendOperationStarted(this.deps, operationId, 'seed', description);
     // Feed the Monitor "live operations" panel with the same planned total.
     this.liveTracker?.register(operationId, 'seed', description, cleared.plannedRecords);
+    // What its gate let it through to write, for a gate of the same org to
+    // take off while it writes, until its entry ends it: two seeds at once
+    // did not see each other.
+    noteRunBegun(
+      { action: 'seed_execute', orgId: cleared.run.orgId, operationId },
+      cleared.storageMB,
+    );
 
     // Create AbortController for this operation
     const abortController = new AbortController();

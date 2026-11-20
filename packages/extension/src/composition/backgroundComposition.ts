@@ -30,6 +30,7 @@ import {
   type RunDeliverability,
 } from '@sandforge/shared';
 import { formatMB } from '../modules/forge/ForgeRunGate';
+import { UNCOUNTED_WINDOW_MINUTES } from '../modules/forge/storageWritten';
 import { uiLocaleOf } from '../core/i18n/catalogueText';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
@@ -716,6 +717,18 @@ function limitsLines(question: WriteConfirmation): string[] {
         storage.maxMB,
       ),
     );
+    // What the gate took off what the org says before it judged the rows:
+    // unsaid, 3 MB against 5 MB left was asked about as more than 80 %.
+    if (storage.uncountedWrites) {
+      lines.push(
+        vscode.l10n.t(
+          'Of what {0} says it has left, about {1} MB is taken by what runs from this machine wrote to it in the last {2} minutes, or are still writing, which Salesforce has not counted yet: it is taken off what is left.',
+          question.org,
+          formatMB(storage.uncountedWrites.mb),
+          UNCOUNTED_WINDOW_MINUTES,
+        ),
+      );
+    }
     if (storage.near) {
       lines.push(
         vscode.l10n.t(

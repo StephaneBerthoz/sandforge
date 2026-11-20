@@ -361,8 +361,8 @@ describe('a seed fitted from the command line', () => {
     // Edition still said 5 MB of 5 left a hundred seconds after a load.
     expect(out).toContain(
       '  Salesforce can take several minutes to count a load in what TGT says it has left: ' +
-        'what runs from this machine wrote to it in the last 10 minutes and it has not counted ' +
-        'yet is taken off, a load from anywhere else is not\n',
+        'what runs from this machine wrote to it in the last 10 minutes, or are still writing, and ' +
+        'it has not counted yet is taken off, a load from anywhere else is not\n',
     );
     // The gate met again counts the room the fit kept, and says it.
     expect(out).toMatch(

@@ -7,6 +7,7 @@ import {
   AuditTrailStore,
   auditUserKey,
   emptyCounts,
+  noteRunBegun,
   recordWriteRun,
 } from './auditTrail.js';
 import type { AuditDeps, WriteRun } from './auditTrail.js';
@@ -411,6 +412,22 @@ describe('recordWriteRun', () => {
         objects: [{ ...emptyCounts('Account'), deleted: 3 }],
       }),
     );
+    expect(records(org)).toBeUndefined();
+  });
+
+  it('notes what a run let through is about to write, until its entry, written or stopped, closes it', () => {
+    const org = '00D000000000008AAA';
+    const records = (orgId: string) =>
+      uncountedWritesOf(orgId, 50, (_object, rows) => rows * 1024 * 1024);
+    const deps = makeDeps();
+
+    noteRunBegun({ action: 'forge_execute', orgId: org, operationId: 'op-a' }, 4);
+    // A deploy or a rehearsal writes no record a gate counts.
+    noteRunBegun({ action: 'forge_rehearse', orgId: org, operationId: 'op-r' }, 9);
+    expect(records(org)).toMatchObject({ mb: 4, runs: 1, writing: 1 });
+
+    // Failed before it wrote: its entry ends it, nothing left to take off.
+    recordWriteRun(deps, run({ orgId: org, operationId: 'op-a', outcome: 'failure', objects: [] }));
     expect(records(org)).toBeUndefined();
   });
 

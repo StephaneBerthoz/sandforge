@@ -38,6 +38,7 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { uncountedWritesOf } from '../../modules/forge/storageWritten.js';
 import { AUTOMATION_READ_MOST } from '../../modules/forge/TargetAutomationReader.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
@@ -261,6 +262,35 @@ describe('SeedCsvHandler', () => {
           'Nothing was written.',
       });
       expect(posted(deps, 'operation:started')).toEqual([]);
+    });
+
+    it('notes, before its first row, what it is about to write, for a gate of the same org until its entry ends it', async () => {
+      // Two runs into one org at once did not see each other: the second's
+      // gate read room the first was about to take.
+      const org = '00D000000000006AAA';
+      const sized = (_object: string, rows: number): number => rows * 2 * 1024;
+      let whileWriting: ReturnType<typeof uncountedWritesOf>;
+      writer.insert.mockImplementation(async () => {
+        whileWriting = uncountedWritesOf(org, 5, sized);
+        return [{ id: '001TGT', success: true, errors: [] }];
+      });
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
+        request: vi.fn(async () => ({
+          DataStorageMB: { Max: 5, Remaining: 5 },
+          DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload({ orgId: org })));
+
+      await vi.waitFor(() => expect(writer.insert).toHaveBeenCalled());
+      expect(whileWriting).toMatchObject({ runs: 1, writing: 1 });
+      // Ended, what it wrote is taken off, no longer as still writing.
+      await vi.waitFor(() =>
+        expect(uncountedWritesOf(org, 5, sized)).toEqual({ mb: 2 / 1024, runs: 1, minutes: 1 }),
+      );
     });
 
     it('lets an upsert past the storage left through to its question: what it updates takes no room', async () => {

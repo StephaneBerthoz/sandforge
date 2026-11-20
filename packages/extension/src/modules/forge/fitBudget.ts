@@ -48,27 +48,30 @@ import { UNCOUNTED_WINDOW_MINUTES } from './storageWritten.js';
  * seconds after, 497; but a Developer Edition of 5 MB still said 5 left a
  * hundred seconds after a load of 1.95 MB, twice, and 2 only 384 seconds
  * after it. What runs from this machine wrote to it in the last
- * {@link UNCOUNTED_WINDOW_MINUTES} minutes is taken off until it counts it
- * (`storageWritten`); what anything else loaded, it cannot know of.
+ * {@link UNCOUNTED_WINDOW_MINUTES} minutes, or are still writing, is taken
+ * off until it counts it (`storageWritten`); what anything else loaded, it
+ * cannot know of.
  */
 export function storageRecountWords(target: string): string {
   return (
     `Salesforce can take several minutes to count a load in what ${target} says it has ` +
     `left: what runs from this machine wrote to it in the last ${UNCOUNTED_WINDOW_MINUTES} ` +
-    'minutes and it has not counted yet is taken off, a load from anywhere else is not'
+    'minutes, or are still writing, and it has not counted yet is taken off, a load from ' +
+    'anywhere else is not'
   );
 }
 
 /**
  * What a fit's line says it kept, beside the rounding, for what runs from
- * this machine wrote to the target that it has not counted yet: ", 2 MB for
- * what runs from this machine wrote to it that Salesforce has not counted
- * yet". Nothing when it kept none.
+ * this machine wrote to the target, or are still writing, that it has not
+ * counted yet: ", 2 MB for what runs from this machine wrote to it, or are
+ * still writing, that Salesforce has not counted yet". Nothing when it kept
+ * none.
  */
 export function uncountedFitWords(budget: Pick<StorageFitBudget, 'uncountedMB'>): string {
   return budget.uncountedMB !== undefined && budget.uncountedMB > 0
-    ? `, ${formatMB(budget.uncountedMB)} MB for what runs from this machine wrote to it that ` +
-        'Salesforce has not counted yet'
+    ? `, ${formatMB(budget.uncountedMB)} MB for what runs from this machine wrote to it, or ` +
+        'are still writing, that Salesforce has not counted yet'
     : '';
 }
 

@@ -91,7 +91,7 @@ import {
   type BeforeRunCheckpoints,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
-import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import {
   isMuteRefusedError,
   muteForRun,
@@ -1258,6 +1258,13 @@ export class AutopilotHandler implements DomainHandler {
     }
 
     this.liveTracker?.register(msg.id, 'autopilot', 'Autopilot run', totalRecords);
+    // Let through: what it is about to write, for a gate of the same target
+    // to take off until its entry ends it. Two runs into one org at once did
+    // not see each other.
+    noteRunBegun(
+      { action: 'autopilot_execute', orgId: operation.targetOrgId, operationId: msg.id },
+      gate.check.estimateMB,
+    );
     this.executingOperations.add(operation.id);
     /** Per object, what the run wrote, as each node settles. */
     const written = new Map<string, AuditObjectCounts>();

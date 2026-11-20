@@ -293,15 +293,19 @@ export interface StorageRoomNotCounted {
 /**
  * Of what an org's `/limits` say it has left, what runs from this machine
  * wrote to it that they have not counted yet: Salesforce counts a load
- * minutes after it, and a storage gate takes it off what the org says.
+ * minutes after it, and a storage gate takes it off what the org says. A run
+ * its gate let through that is still writing is among them, by what it was
+ * let through to write less what the org has counted since it began.
  */
 export interface UncountedWrites {
   /** What those runs wrote, in MB, that the org still says is left. */
   mb: number;
   /** The runs that wrote it. */
   runs: number;
-  /** Minutes since the first of them ended, rounded up. */
+  /** Minutes since the first of them ended, or began for one still writing, rounded up. */
   minutes: number;
+  /** Of `runs`, those still writing; absent when none is. */
+  writing?: number;
 }
 
 /**

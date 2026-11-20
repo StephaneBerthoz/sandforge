@@ -198,7 +198,7 @@ describe('SeedFitProposalCard', () => {
     expect(screen.getByTestId('seed-fit-bound').textContent).toContain(
       'once 0.5 MB is set aside for the rounding of what it says. Of what the org says it has ' +
         'left, about 2 MB is taken by what runs from this machine wrote to it in the last 10 ' +
-        'minutes, which Salesforce has not counted yet.',
+        'minutes, or are still writing, which Salesforce has not counted yet.',
     );
   });
 

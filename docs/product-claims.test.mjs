@@ -5631,7 +5631,13 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   );
   assert.match(
     sample,
-    /and what runs from this machine wrote to the target in the last 10 minutes that Salesforce has not counted yet/,
+    /and what runs from this machine wrote to the target in the last 10 minutes, or are still writing, that Salesforce has not counted yet/,
+  );
+  // A run still writing among them: noted as its gate lets it through.
+  assert.match(
+    read(...FORGE_SRC, 'storageWritten.ts'),
+    /export function noteStorageBegun\(/,
+    'a run still writing is no longer noted as its gate lets it through — re-point this gate',
   );
   assert.match(
     read(...FORGE_SRC, 'storageWritten.ts'),

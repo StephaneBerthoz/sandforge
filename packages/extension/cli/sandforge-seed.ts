@@ -180,7 +180,7 @@ import {
   takeCheckpointFirst,
   type EmailLimit,
 } from '../src/modules/forge/ForgeRunGate.js';
-import { emptyCounts, noteRunWritten } from '../src/modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, noteRunWritten } from '../src/modules/audit/auditTrail.js';
 import {
   NO_APEX_IN_PRODUCTION,
   readEmailDeliverability,
@@ -2357,11 +2357,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     typedFirst: args.dryRun,
     sentBefore: sentSoFar(),
   };
+  /** The org whose storage the gate reads, by its id: what the run notes it writes under. */
+  const storageOrgId = typedTarget?.id ?? session.orgId;
   // What still runs creates under the records counted with them, as --fit
   // keeps room for it: weighed alone, a seed whose flows open a task under
   // each account went through past what the target had left.
   let storage = await seedStorageGate(
-    limitsOfOrg(conn, typedTarget?.id ?? session.orgId),
+    limitsOfOrg(conn, storageOrgId),
     taken,
     personObjects,
     args.target,
@@ -2420,7 +2422,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         // What the first gate read is sent by now, and priced as sent.
         writePath = { ...writePath, sentBefore: sentSoFar() };
         storage = await seedStorageGate(
-          limitsOfOrg(conn, typedTarget?.id ?? session.orgId),
+          limitsOfOrg(conn, storageOrgId),
           taken,
           personObjects,
           args.target,
@@ -2783,6 +2785,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       for (const line of muteLines(mutedAutomation, args.target)) log(line);
       refuse(relit);
     }
+    // What its gate let it through to write, for a gate of the same org to
+    // take off while it writes: two seeds at once did not see each other.
+    if (!args.dryRun && storageOrgId !== undefined) {
+      noteRunBegun(
+        { action: 'seed_execute', orgId: storageOrgId, operationId: runId },
+        storage.check.estimateMB,
+      );
+    }
     result = await orchestrator.execute(template, args.target, runId).finally(async () => {
       if (held) {
         mutedAutomation = await held.release();
@@ -2796,6 +2806,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     await kept
       ?.end({ status: 'failure', finishedAt: new Date().toISOString(), objectResults: [] })
       .catch(keepFailed);
+    // And is noted for the next storage gate of the target, as its file
+    // keeps it: noted at the end alone, it was in the org and noted nowhere.
+    if (!args.dryRun && storageOrgId !== undefined) {
+      const created = (await runs?.get(runId).catch(() => undefined))?.created ?? [];
+      noteRunWritten({
+        action: 'seed_execute',
+        orgId: storageOrgId,
+        operationId: runId,
+        objects: created.map(({ objectApiName, ids }) => ({
+          ...emptyCounts(objectApiName),
+          created: ids.length,
+        })),
+      });
+    }
     // Its checkpoint kept once it sent a record, deleted when it sent none:
     // its lease refused after the take among them.
     await settleCheckpoint();
@@ -2857,11 +2881,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const targetOrgId =
     !args.dryRun && created > 0 ? (typedTarget?.id ?? (await organizationIdOf(conn))) : undefined;
   // What it created, for the next storage gate of the target to take off
-  // what `/limits` says until Salesforce has counted it.
-  if (targetOrgId !== undefined) {
+  // what `/limits` says until Salesforce has counted it: the end of what its
+  // gate noted it began, whatever it created.
+  const endedIn = targetOrgId ?? (args.dryRun ? undefined : storageOrgId);
+  if (endedIn !== undefined) {
     noteRunWritten({
       action: 'seed_execute',
-      orgId: targetOrgId,
+      orgId: endedIn,
+      operationId: runId,
       objects: result.objectResults.map((o) => ({
         ...emptyCounts(o.objectApiName),
         created: o.createdIds.length,

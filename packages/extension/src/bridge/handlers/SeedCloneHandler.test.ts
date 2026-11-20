@@ -78,6 +78,7 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { uncountedWritesOf } from '../../modules/forge/storageWritten.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -497,6 +498,42 @@ describe('SeedCloneHandler', () => {
       const result = responses[0].payload as { objectResults: Array<Record<string, unknown>> };
       expect(result).not.toHaveProperty('secondPass');
       expect(result.objectResults[0]).not.toHaveProperty('fieldsNotInTarget');
+    });
+
+    it('notes, before its first record, what it is about to write, for a gate of the same target until its entry ends it', async () => {
+      // Two runs into one org at once did not see each other: the second's
+      // gate read room the first was about to take.
+      const target = '00D000000000007AAA';
+      const sized = (_object: string, rows: number): number => rows * 2 * 1024;
+      let whileWriting: ReturnType<typeof uncountedWritesOf>;
+      writer.insert.mockImplementation(async () => {
+        whileWriting = uncountedWritesOf(target, 5, sized);
+        return [{ id: '001TGT', success: true, errors: [] }];
+      });
+      fetcher.countRecords.mockResolvedValue(1);
+      fetcher.fetchSample.mockResolvedValue([]);
+      const orgs = { targetOrgId: target };
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-preview',
+          type: 'seed:clone:preview',
+          timestamp: Date.now(),
+          payload: clonePayload(orgs),
+        } as BaseMessage),
+      );
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-run',
+          type: 'seed:clone:execute',
+          timestamp: Date.now(),
+          payload: clonePayload({ ...orgs, previewId: 'wv-preview' }),
+        } as BaseMessage),
+      );
+
+      expect(posted(deps, 'seed:clone:error')).toEqual([]);
+      expect(whileWriting).toMatchObject({ runs: 1, writing: 1 });
+      expect(uncountedWritesOf(target, 5, sized)).toEqual({ mb: 2 / 1024, runs: 1, minutes: 1 });
     });
 
     describe('the preview a run follows', () => {

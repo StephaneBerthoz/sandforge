@@ -21,7 +21,7 @@ import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { Services } from '../../services.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { buildLineageGraph, LineageStore } from './lineage.js';
-import { noteStorageWritten, writtenOfCounts } from '../forge/storageWritten.js';
+import { noteStorageBegun, noteStorageWritten, writtenOfCounts } from '../forge/storageWritten.js';
 
 /** Entries kept; the oldest are dropped past it. */
 export { AUDIT_TRAIL_LIMIT };
@@ -285,14 +285,38 @@ const RECORD_WRITES: ReadonlySet<AuditAction> = new Set<AuditAction>([
  * it: what {@link recordWriteRun} does of every run, and a command line of a
  * run it keeps no audit entry of. Never throws.
  *
+ * Noted under the run's operation, its end closes what its gate noted as it
+ * let it through (`noteRunBegun`): written, stopped or failed, the gates of
+ * the org no longer take it off as still writing.
+ *
  * @param now - When it ended (injected by tests).
  */
 export function noteRunWritten(
-  run: Pick<WriteRun, 'action' | 'orgId' | 'objects'>,
+  run: Pick<WriteRun, 'action' | 'orgId' | 'objects'> & Partial<Pick<WriteRun, 'operationId'>>,
   now: Date = new Date(),
 ): void {
   if (!RECORD_WRITES.has(run.action)) return;
-  noteStorageWritten(run.orgId, writtenOfCounts(run.objects ?? []), { now });
+  noteStorageWritten(run.orgId, writtenOfCounts(run.objects ?? []), {
+    now,
+    ...(run.operationId !== undefined ? { run: run.operationId } : {}),
+  });
+}
+
+/**
+ * Note, as a gate lets a run through and before its first write, what the
+ * run is about to write to its org, in MB, under its operation: until its end
+ * is noted ({@link noteRunWritten}) or its process is gone, the storage gates
+ * of that org take it off what `/limits` says. Two runs into one org at once
+ * did not see each other: the second read room the first was about to take.
+ * Never throws.
+ */
+export function noteRunBegun(
+  run: Pick<WriteRun, 'action' | 'orgId' | 'operationId'>,
+  estimateMB: number,
+  now: Date = new Date(),
+): void {
+  if (!RECORD_WRITES.has(run.action)) return;
+  noteStorageBegun(run.orgId, run.operationId, estimateMB, { now });
 }
 
 /**

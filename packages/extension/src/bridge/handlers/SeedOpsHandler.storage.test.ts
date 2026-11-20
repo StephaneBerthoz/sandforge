@@ -16,6 +16,7 @@ import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrches
 import { LOCALE_DATA } from '../../modules/seed/LocaleData.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import { seedRequestsEstimate } from '../../modules/seed/seedStorage.js';
+import { uncountedWritesOf } from '../../modules/forge/storageWritten.js';
 import type { AIProvider } from '../../modules/ai/types.js';
 
 vi.mock('../../logger.js', () => ({
@@ -175,6 +176,46 @@ describe('SeedOpsHandler — storage and locale', () => {
 
     await vi.waitFor(() => expect(executed).toHaveLength(1));
     expect(posted('seed:error')).toEqual([]);
+  });
+
+  it('notes, as it begins, what its gate let it through to write, for a gate of the same org to take off until it ends', async () => {
+    // Two seeds into one org at once did not see each other: the second's
+    // gate read room the first was about to take.
+    const org = '00D000000000005AAA';
+    developerEdition();
+    const sized = (_object: string, rows: number): number => rows * 2 * 1024;
+    let whileWriting: ReturnType<typeof uncountedWritesOf>;
+    (deps.services as unknown as { seedOrchestrator: unknown }).seedOrchestrator = () => ({
+      execute: async (template: SeedTemplate) => {
+        executed.push(template);
+        whileWriting = uncountedWritesOf(org, 5, sized);
+        return {
+          templateId: template.id,
+          operationId: 'op-1',
+          status: 'success',
+          objectResults: [],
+          totalRecordsCreated: 0,
+          totalRecordsFailed: 0,
+          duration: 1,
+          timestamp: '2026-10-20T00:00:00.000Z',
+        };
+      },
+    });
+
+    await handler.handle(
+      inboundRequest({
+        id: 'seed-begun',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: org, template: CRM_STARTER },
+      }),
+    );
+    await vi.waitFor(() => expect(executed).toHaveLength(1));
+
+    expect(whileWriting).toMatchObject({ runs: 1, writing: 1 });
+    expect(whileWriting?.mb).toBeGreaterThan(0);
+    // Its entry, written as it ended, ends it: it created nothing.
+    await vi.waitFor(() => expect(uncountedWritesOf(org, 5, sized)).toBeUndefined());
   });
 
   it('runs a seed whose org will not say its storage, and says so in the log', async () => {

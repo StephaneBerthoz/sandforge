@@ -2103,6 +2103,51 @@ describe('forge:execute, the gate before the first write', () => {
       );
     });
 
+    it('refuses, while a run into the same org writes, rows that fit only the room that run is about to take', async () => {
+      // Two runs at once did not see each other: the first noted what it
+      // wrote as it ended, and the second's gate read the room it was taking.
+      const target = '00D000000000004AAA';
+      const run = (on: ForgeHandler, id: string, recordId: string) =>
+        on.handle(
+          inboundRequest({
+            id,
+            type: 'forge:execute',
+            timestamp: Date.now(),
+            payload: { graph: graphOf(), config: { ...CONFIG, recordId, targetOrgId: target } },
+          } as BaseMessage),
+        );
+      limits = { DataStorageMB: { Max: 5, Remaining: 5 } };
+      // Another window: a window runs one clone at a time.
+      const other = new ForgeHandler(deps);
+      other.setJournalLocks(locks.opened());
+      other.setForgeOrchestrator(orchestratorHanding(boundaryOf(1_699)), {
+        targetAutomation: readerOf(QUIET),
+      });
+      const first = orchestratorHanding(boundaryOf(1_023));
+      first.execute.mockImplementation(async (_graph, _config, options) => {
+        await options?.beforeWrite?.(boundaryOf(1_023));
+        calls.push('written');
+        // 1 700 records, about 3.33 MB, against the 5 MB said, 2 MB of it
+        // the first run's, still writing: refused for those 2 MB alone.
+        await run(other, 'wv-second', '001000000000456');
+        return { ...RESULT, createdCount: 0, idRemapByObject: [] };
+      });
+      handler.setForgeOrchestrator(first, { targetAutomation: readerOf(QUIET) });
+
+      await run(handler, 'wv-first', ACCOUNT_ID);
+
+      expect(calls.filter((call) => call === 'written')).toHaveLength(1);
+      const [error] = posted('forge:execute:error');
+      expect(error.payload.gate).toMatchObject({
+        code: 'STORAGE_EXCEEDED',
+        storage: { remainingMB: 5, uncountedWrites: { runs: 1, minutes: 1, writing: 1 } },
+      });
+      expect(error.payload.message).toContain(
+        'UAT has 5 MB left of 5 MB (about 2 MB of it taken by what a run from this machine is ' +
+          'still writing to UAT, begun 1 minute(s) ago, which Salesforce has not counted yet)',
+      );
+    });
+
     it('asks near what the target has left, whatever the volume', async () => {
       // 100 records take 0.2 MB: more than 80 % of what is left once the
       // half MB of the rounding of what the org says is set aside.

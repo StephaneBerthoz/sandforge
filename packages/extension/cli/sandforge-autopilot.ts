@@ -127,7 +127,7 @@ import {
   type ApiBudgetCheck,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
-import { emptyCounts, noteRunWritten } from '../src/modules/audit/auditTrail.js';
+import { emptyCounts, noteRunBegun, noteRunWritten } from '../src/modules/audit/auditTrail.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
 import { apiRequestsLine, journalDirOf, targetAutomationReader } from './sandforge-clone.js';
 import { fitOfArgs, type CliFit } from './sandforge-seed.js';
@@ -1218,6 +1218,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       for (const line of muteLines(mutedAutomation, args.target)) log(line);
       refuse({ code: relit.code, message: relit.message });
     }
+    // What its gate let it through to write, for a gate of the same target
+    // to take off while it writes: two runs into one org at once did not see
+    // each other. Its end, below, closes it.
+    if (typedTarget) {
+      noteRunBegun(
+        {
+          action: 'autopilot_execute',
+          orgId: typedTarget.id,
+          operationId: `sandforge-autopilot-${t0}`,
+        },
+        check.estimateMB,
+      );
+    }
     result = await orchestrator
       .executePlan(plan, graph, rules, recordCounts, undefined, stop.signal, scan.parentIds, {
         ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
@@ -1241,6 +1254,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       noteRunWritten({
         action: 'autopilot_execute',
         orgId: typedTarget.id,
+        operationId: `sandforge-autopilot-${t0}`,
         objects: [...created].map(([objectApiName, ids]) => ({
           ...emptyCounts(objectApiName),
           created: ids.length,
