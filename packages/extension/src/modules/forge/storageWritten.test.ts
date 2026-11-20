@@ -216,6 +216,67 @@ describe('what runs from this machine wrote to an org that its /limits has not c
       ).toEqual({ mb: 40, runs: 1, minutes: 45, writing: 1 });
     });
 
+    it('credits a run still writing with nothing the org counted before it began', () => {
+      // Run for real on a scratch org of 500 MB, which says its storage to
+      // the MB: two seeds A and B, then A2 and B2, then A3 alone. The drop to
+      // 499 came before A3 began, and its question said 0.08 MB of the
+      // 0.39 MB it was let through to write: the remnant of A and B under the
+      // MB, counted with B2 and A2, was credited to A3.
+      const utc = (time: string): Date => new Date(`2026-11-20T${time}Z`);
+      const said = (time: string, mb: number) => noteStorageSaid(ORG, mb, { dir, now: utc(time) });
+      const begun = (time: string, run: string, accounts: number) =>
+        noteStorageBegun(ORG, run, (accounts * 2) / 1024, { dir, now: utc(time) });
+      const ended = (time: string, run: string, accounts: number) =>
+        noteStorageWritten(ORG, { Account: accounts }, { dir, now: utc(time), run });
+      said('14:46:34.105', 500);
+      said('14:49:47.409', 500);
+      begun('14:49:47.421', 'a', 200);
+      said('14:50:03.191', 500);
+      said('14:50:24.599', 500);
+      begun('14:50:24.612', 'b', 150);
+      ended('14:50:36.366', 'b', 150);
+      ended('14:50:52.996', 'a', 200);
+      said('14:52:23.888', 500);
+      said('14:53:20.070', 500);
+      said('15:01:16.166', 500);
+      begun('15:01:16.178', 'a2', 200);
+      said('15:01:33.079', 500);
+      said('15:01:48.748', 500);
+      begun('15:01:48.758', 'b2', 150);
+      ended('15:01:59.519', 'b2', 150);
+      said('15:02:06.029', 499);
+      ended('15:02:22.243', 'a2', 200);
+      said('15:03:19.452', 499);
+      begun('15:03:19.463', 'a3', 200);
+
+      // 499 since A3's gate: nothing of it counted, all of it taken off.
+      const asked = uncountedWritesOf(ORG, 499, bytesOf, {
+        dir,
+        now: utc('15:03:32.247'),
+        alive: alive(true),
+      });
+      expect(asked).toMatchObject({ runs: 1, minutes: 1, writing: 1 });
+      expect(asked?.mb).toBeCloseTo(200 / 512, 6);
+      // Ended, and 499 still: what the 1 MB less counted came to, nothing left.
+      ended('15:04:25.624', 'a3', 200);
+      expect(
+        uncountedWritesOf(ORG, 499, bytesOf, { dir, now: utc('15:04:43.805'), alive: alive(true) }),
+      ).toBeUndefined();
+    });
+
+    it('credits a run still writing with what the org counted since it began, less what runs that ended since wrote', () => {
+      noteStorageSaid(ORG, 500, { dir, now: at(0) });
+      noteStorageBegun(ORG, 'run-a', 30, { dir, now: at(0) });
+      noteStorageSaid(ORG, 500, { dir, now: at(1) });
+      noteStorageBegun(ORG, 'run-b', 4, { dir, now: at(1) });
+      noteStorageWritten(ORG, { Contact: 4 * RECORDS_PER_MB }, { dir, now: at(2), run: 'run-b' });
+
+      // 10 MB less said: B's 4 and 6 of A's 30, 24 still to come.
+      expect(uncountedWritesOf(ORG, 490, bytesOf, { dir, now: at(3), alive: alive(true) })).toEqual(
+        { mb: 24, runs: 1, minutes: 3, writing: 1 },
+      );
+    });
+
     it('holds a run that ended past the window as counted, however little the org has dropped since', () => {
       noteStorageSaid(ORG, 500, { dir, now: at(0) });
       noteStorageBegun(ORG, 'run-a', 100, { dir, now: at(0) });

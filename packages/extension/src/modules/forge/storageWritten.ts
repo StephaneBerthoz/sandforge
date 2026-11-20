@@ -323,8 +323,8 @@ export function writtenOfCounts(
  * A run still writing ({@link noteStorageBegun}) is read from when it began,
  * the runs that ended since among the few, those past the window counted
  * whatever the change: what the change comes to past them is what the org
- * has counted of it, and the rest of what it was let through to write is
- * taken off.
+ * has counted of it, no more than the drop since it began less what ended
+ * since, and the rest of what it was let through to write is taken off.
  */
 export function uncountedWritesOf(
   orgId: string,
@@ -344,14 +344,13 @@ export function uncountedWritesOf(
   const since = Math.min(now - window, open[0]?.at ?? Infinity);
   const isWrite = (note: Note): note is Wrote =>
     'wrote' in note && note.at <= now && note.at >= since;
-  const writes = notes.filter(isWrite).map((note) => ({
-    at: note.at,
-    bytes: Object.entries(note.wrote).reduce(
+  const sized = (note: Wrote): number =>
+    Object.entries(note.wrote).reduce(
       (sum, [objectApiName, rows]) =>
         sum + Math.sign(rows) * bytesOf(objectApiName, Math.abs(rows)),
       0,
-    ),
-  }));
+    );
+  const writes = notes.filter(isWrite).map((note) => ({ at: note.at, bytes: sized(note) }));
   if (writes.length === 0 && open.length === 0) return undefined;
   // What it said last before the first of them, in the order noted: a gate's
   // read and the end of the run it let through can fall in one millisecond.
@@ -365,12 +364,18 @@ export function uncountedWritesOf(
   const counted = before ? countedRunsOf(writes, taken, past) : past;
   const left = writes.slice(counted);
   // What the change comes to past the runs it counted is what the org has
-  // counted of those still writing, the first begun first.
+  // counted of those still writing, the first begun first — each no more
+  // than what the org says it dropped since that run began, less what the
+  // runs that ended since wrote ({@link countedSinceBegun}).
   let ofTheOpen = before ? taken - sumOf(writes.slice(0, counted)) : 0;
   const writing = open
     .map((run) => {
       const begun = run.begunMB * BYTES_PER_MB;
-      const countedOfIt = Math.min(begun, Math.max(0, ofTheOpen));
+      const countedOfIt = Math.min(
+        begun,
+        Math.max(0, ofTheOpen),
+        countedSinceBegun(notes, run, remainingMB, now, sized),
+      );
       ofTheOpen -= countedOfIt;
       return { at: run.at, bytes: begun - countedOfIt };
     })
@@ -406,6 +411,41 @@ function stillWriting(
     seen.add(note.run);
     return alive(note.pid, note.host);
   });
+}
+
+/**
+ * The most the org may have counted of `run`, a run still writing, in bytes:
+ * what `/limits`, saying `remainingMB` now, dropped since the last thing it
+ * said before the run began, less what the runs that ended since wrote —
+ * counted whole, a removal counting nothing, so it is never credited with
+ * more. Nothing said before it, nothing. Read from the window instead, a run
+ * begun after the org counted the remnant under the MB of earlier runs was
+ * credited with it: run for real, a seed begun at 499 and still writing, the
+ * org at 499, was said to take 0.08 MB of the 0.39 MB it was let through to
+ * write.
+ */
+function countedSinceBegun(
+  notes: readonly Note[],
+  run: Begun,
+  remainingMB: number,
+  now: number,
+  sized: (note: Wrote) => number,
+): number {
+  const at = notes.indexOf(run);
+  let baseline = -1;
+  for (let index = at - 1; index >= 0; index--) {
+    if ('saidMB' in (notes[index] as Note)) {
+      baseline = index;
+      break;
+    }
+  }
+  const said = notes[baseline];
+  if (said === undefined || !('saidMB' in said)) return 0;
+  const endedSince = notes
+    .slice(baseline + 1)
+    .filter((note): note is Wrote => 'wrote' in note && note.at <= now)
+    .reduce((sum, note) => sum + Math.max(0, sized(note)), 0);
+  return Math.max(0, (said.saidMB - remainingMB) * BYTES_PER_MB - endedSince);
 }
 
 /** The bytes of `writes` together. */
