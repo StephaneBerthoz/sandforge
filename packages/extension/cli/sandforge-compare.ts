@@ -1080,13 +1080,17 @@ async function deployFromLine(run: DeployRun): Promise<void> {
   // the stop's code; a second ends the process at once.
   const stop = new AbortController();
   let stoppedBy: StopSignal | undefined;
+  const question = { open: false };
   const release = onStopSignal((signal) => {
     stoppedBy = signal;
-    process.stderr.write(
-      `\ninterrupted: the run stops waiting on ${args.target} and says what it sent there ` +
-        '(Ctrl-C again ends it at once)\n',
-    );
+    // The question waiting on the alias ends its own line once stopped; the
+    // line said here first left a blank one under it.
+    const atQuestion = question.open;
     stop.abort();
+    process.stderr.write(
+      `${atQuestion ? '' : '\n'}interrupted: the run stops waiting on ${args.target} and says ` +
+        `what it sent there (${secondStopWords(signal)})\n`,
+    );
   });
   const stopped = (during: StoppedDuring, line: string, ids: Record<string, string>): void => {
     log(line);
@@ -1094,10 +1098,19 @@ async function deployFromLine(run: DeployRun): Promise<void> {
     process.exitCode = stopExitCode(stoppedBy ?? 'SIGINT');
   };
   try {
-    await validateThenDeploy(run, { results, answerJson, stop: stop.signal, stopped });
+    await validateThenDeploy(run, { results, answerJson, stop: stop.signal, stopped, question });
   } finally {
     release();
   }
+}
+
+/**
+ * What ends a stopped run at once, in the words of the signal that stopped
+ * it: after a SIGTERM — a CI job cancelled or timed out — or a SIGHUP, no one
+ * is there to press Ctrl-C, and any signal that follows ends the process.
+ */
+function secondStopWords(signal: StopSignal): string {
+  return signal === 'SIGINT' ? 'Ctrl-C again ends it at once' : 'a second signal ends it at once';
 }
 
 /** Where a stop found a run with --deploy, as its JSON names it. */
@@ -1112,6 +1125,8 @@ interface DeploySteps {
   stop: AbortSignal;
   /** Say where the stop found the run and what of it goes on, and end on the stop's code. */
   stopped: (during: StoppedDuring, line: string, ids: Record<string, string>) => void;
+  /** Open while the alias is asked for. */
+  question: { open: boolean };
 }
 
 /**
@@ -1142,7 +1157,7 @@ function untilStopped(
 /** The validation, then, once its alias is typed or --yes given, the deployment of what it validated. */
 async function validateThenDeploy(run: DeployRun, steps: DeploySteps): Promise<void> {
   const { args, deploy, host, target, log } = run;
-  const { results, answerJson, stop, stopped } = steps;
+  const { results, answerJson, stop, stopped, question } = steps;
   const theComponents = deploy.components.length === 1 ? 'the component' : 'the components';
 
   // What DeployPanel sends: the components, the level, and the names only
@@ -1201,7 +1216,9 @@ async function validateThenDeploy(run: DeployRun, steps: DeploySteps): Promise<v
           `${args.target}, with the same tests, and ${args.target} keeps them.`),
   );
   if (!deploy.yes) {
+    question.open = true;
     const answer = await typed(`Type ${args.target} to deploy it:`, run.terminal, stop);
+    question.open = false;
     if (stop.aborted) {
       stopped(
         'confirmation',

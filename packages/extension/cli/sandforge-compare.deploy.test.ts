@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -186,15 +186,22 @@ function terminal(answer: string): PromptStreams & { said: () => string } {
   return { input, output, said: () => said };
 }
 
-/** A terminal no one types on: `signal` comes once the question is asked, as a Ctrl-C there. */
+/**
+ * A terminal no one types on: `signal` comes once the question is asked, as a
+ * Ctrl-C there. What it is given goes to stderr as it comes, as the command's
+ * own terminal is, so the lines read in the order they were written.
+ */
 function stoppedAtTheQuestion(signal: StopWhile['signal']): PromptStreams & { said: () => string } {
   const input = Object.assign(new PassThrough(), { isTTY: true });
-  const output = new PassThrough();
   let said = '';
-  output.on('data', (chunk: Buffer) => {
-    const askedBefore = said.includes('to deploy it:');
-    said += String(chunk);
-    if (!askedBefore && said.includes('to deploy it:')) stopNow(signal);
+  const output = new Writable({
+    write(chunk: Buffer, _encoding, done) {
+      const askedBefore = said.includes('to deploy it:');
+      said += String(chunk);
+      process.stderr.write(String(chunk));
+      if (!askedBefore && said.includes('to deploy it:')) stopNow(signal);
+      done();
+    },
   });
   return { input, output, said: () => said };
 }
@@ -599,10 +606,16 @@ describe('sandforge compare --deploy, stopped', () => {
 
   it('stops on a SIGTERM as on a Ctrl-C, with its own exit code', async () => {
     const h = harness({ stop: { signal: 'SIGTERM', during: 'deployment' } });
-    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+    const { code, stdout, stderr } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
 
     expect(code).toBe(143);
     expect(stdout).toContain('the deployment goes on in TGT');
+    // A CI job cancelled, or a closed terminal: nobody is there to press Ctrl-C.
+    expect(stderr).toContain(
+      'interrupted: the run stops waiting on TGT and says what it sent there ' +
+        '(a second signal ends it at once)',
+    );
+    expect(stderr).not.toContain('Ctrl-C');
   });
 
   it('says a deployment stopped on its way may have reached the target, its id not yet back', async () => {
@@ -619,7 +632,15 @@ describe('sandforge compare --deploy, stopped', () => {
   it('deploys nothing once stopped at the question, and says the validation changed nothing', async () => {
     const h = harness();
     const typed = stoppedAtTheQuestion('SIGINT');
-    const { code, stdout } = await h.run(typed, ...COMPONENTS);
+    const { code, stdout, stderr } = await h.run(typed, ...COMPONENTS);
+
+    // The question's line ends once, then the stop says itself: a blank line
+    // came between the two, the question ending its line after the stop had.
+    expect(stderr).toContain(
+      'Type TGT to deploy it: \ninterrupted: the run stops waiting on TGT and says what it ' +
+        'sent there (Ctrl-C again ends it at once)\n',
+    );
+    expect(stderr).not.toContain('\n\n');
 
     expect(code).toBe(130);
     expect(h.sent.map((r) => r.type)).toEqual(['compare:validate-deployment']);
@@ -647,9 +668,10 @@ describe('sandforge compare --deploy, stopped', () => {
 
   it('deploys nothing once stopped while the source packs the components', async () => {
     const h = harness({ stop: { signal: 'SIGHUP', during: 'retrieval' } });
-    const { code, stdout } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
+    const { code, stdout, stderr } = await h.run(noTerminal(), ...COMPONENTS, '--yes');
 
     expect(code).toBe(129);
+    expect(stderr).toContain('(a second signal ends it at once)');
     expect(h.target.metadata.deploy).not.toHaveBeenCalled();
     expect(stdout).toContain(
       '  stopped before TGT gave the validation an id: nothing was deployed to TGT, and a ' +

@@ -401,7 +401,15 @@ export async function deployPackage(
   }
 }
 
-/** Where a deployment stands: its components, then its tests. */
+/**
+ * Where a deployment stands: its components, then its tests, as the org
+ * counts them while it works. Its count then holds the object a field or a
+ * record type belongs to, which its final status leaves out: one field reads
+ * "of 2" while the org deploys it and 1 at the end; a field, a record type
+ * and a permission set read 5, then 3 (20/11/2026). The manifest is in
+ * neither count. The count is taken as the org gives it: neither one less
+ * nor the number of components asked for would be right for every package.
+ */
 function progressOf(status: DeployStatus): DeployProgress {
   const testsTotal = status.numberTestsTotal ?? 0;
   const componentsTotal = status.numberComponentsTotal ?? 0;
