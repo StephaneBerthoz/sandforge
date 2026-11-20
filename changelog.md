@@ -5,6 +5,30 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.85.0] - 2026-11-20
+
+Rewinds and removals count what goes with what they delete; storage gates see a run still writing; a lock a trigger met is explained as a lock.
+
+### Added
+
+- **Frozen Dataset**: the report, the Load tab and the command line also say per object the updates and purge deletes sent again for a record lock.
+
+### Changed
+
+- **Mute**: pages that mute as the run starts no longer offer it to a user who can't assign permission sets: a line says why.
+
+### Fixed
+
+- **Checkpoints**: a rewind limited to some objects counts, in its preview, result and undo, the records of the others that go with what it deletes.
+- **Checkpoints**: a contact's relation to its own account stays with the contact a rewind keeps, no longer refusing the rewind as one Undo couldn't bring back.
+- **Seed, Sync**: a removal deletes the duplicate record sets it left empty while its mute holds, and reads and mutes what fires on them, whoever the run wrote as.
+- **Storage gates**: Forge, Seed and Autopilot take off what a run from this machine is still writing to the same org; the question before a first write says so.
+- **Storage gates**: a seed stopped by an error notes what it wrote; a gate's brackets no longer count a run and its removal as two runs.
+- **Errors**: a record a trigger refused for a lock its update met gets the lock's hint, not "fix that automation", and is grouped apart.
+- **Forge**: a run's journal and the files beside it are readable by your user alone; the sweep of old sample plans goes on past one it cannot remove.
+- **Command line**: `sandforge compare` says what a validation would create or change; a stop during `--deploy` names the deployment the target goes on with.
+- **Command line**: `sandforge checkpoint --help` says a store on Windows is as private as its folder.
+
 ## [1.84.1] - 2026-11-20
 
 SandForge no longer opens as every window starts: a click on its icon opens Home, and an update to a new version opens it on What's New.
