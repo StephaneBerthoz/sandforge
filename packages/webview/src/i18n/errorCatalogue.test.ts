@@ -53,6 +53,7 @@ const MESSAGE_SAMPLES: readonly string[] = [
   "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
   'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',
   'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: Item_Trigger: System.LimitException: Too many SOQL queries: 101',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []',
   "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
   "Cycle FK 'ParentId' could not be resolved",
   'no parent in cache and not the root',

@@ -7747,6 +7747,12 @@
       "forge": {
         "explanation": "A org de destino não conseguiu bloquear o registro, ou aquele do qual ele depende, porque outra operação o segurava naquele momento: um job, uma integração ou a própria automação da org de destino, ainda trabalhando em registros que o clone tinha acabado de gravar. Costuma ser passageiro.",
         "action": "Tente de novo os objetos com falha. Se o bloqueio voltar, espere terminarem os jobs e as integrações que gravam esses registros na org de destino, e então tente de novo."
+      },
+      "metByTrigger": {
+        "explanation": "Ao salvar este registro, um gatilho da org tentou gravar em um registro que a org não conseguiu bloquear: outra operação o segurava naquele momento. Este registro foi recusado por esse bloqueio, não por um erro do gatilho. Costuma ser passageiro.",
+        "forge": {
+          "explanation": "Ao salvar este registro, um gatilho da org de destino tentou gravar em um registro que a org de destino não conseguiu bloquear: outra operação o segurava naquele momento — um job, uma integração ou a própria automação da org de destino, ainda trabalhando em registros que o clone tinha acabado de gravar. Este registro foi recusado por esse bloqueio, não por um erro do gatilho. Costuma ser passageiro."
+        }
       }
     },
     "requestLimit": {

@@ -14,6 +14,24 @@ import {
 const forge = (raw: string, code?: string) => translateError(raw, { code, module: 'forge' });
 
 /**
+ * A trigger whose update met a lock, as the platform refuses the row it ran
+ * for: over REST, from a Bulk API job, and over several lines, as a delete's
+ * trigger words it.
+ */
+const NESTED_LOCKS: readonly string[] = [
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+    'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+    'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY:ParentRollup: execution of AfterInsert caused by: ' +
+    'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+    'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []:--',
+  'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: LogGuard: execution of AfterDelete\n\ncaused by: ' +
+    'System.DmlException: Update failed. First exception on row 0 with id a01000000000009AAA; ' +
+    'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []\n\n' +
+    'Trigger.LogGuard: line 6, column 1',
+];
+
+/**
  * The ten codes a clone met with nothing said under them but "look up this
  * error code": one message each, as the target words it, with the hint it
  * gets and how much it costs the clone.
@@ -333,6 +351,34 @@ describe('translateError in Forge', () => {
     expect(result?.actionKey).toBe('errors.automationRefused.forge.action');
   });
 
+  it("explains a trigger's refusal whose update met a lock as that lock, not as the trigger failing", () => {
+    for (const raw of NESTED_LOCKS) {
+      expect(forge(raw)).toEqual({
+        code: 'UNABLE_TO_LOCK_ROW',
+        explanationKey: 'errors.rowLocked.metByTrigger.forge.explanation',
+        actionKey: 'errors.rowLocked.forge.action',
+        severity: 'warning',
+        docUrl: `${FORGE_GUIDE_URL}#${guideAnchorOf('UNABLE_TO_LOCK_ROW')}`,
+        docKind: 'guide',
+      });
+      // The code sent beside the message reaches the same hint.
+      expect(forge(raw, 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY')?.explanationKey).toBe(
+        'errors.rowLocked.metByTrigger.forge.explanation',
+      );
+    }
+  });
+
+  it("leaves a trigger's refusal whose update met another error to the automation's own hint", () => {
+    const result = forge(
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+        'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+        'first error: FIELD_CUSTOM_VALIDATION_EXCEPTION, Region is required: [Region__c]',
+    );
+    expect(result?.code).toBe('CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY');
+    expect(result?.explanationKey).toBe('errors.automationRefused.forge.explanation');
+    expect(result?.actionKey).toBe('errors.automationRefused.forge.action');
+  });
+
   /**
    * A limit the target's automation hit, as a trap org answered an insert and
    * a delete of it (one line, under CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY);
@@ -581,6 +627,39 @@ describe('translateError in every other module', () => {
         docKind: 'search',
       });
     }
+  });
+
+  it("words a trigger's refusal whose update met a lock as a lock, for a seed as for the others", () => {
+    for (const raw of NESTED_LOCKS) {
+      for (const module of [undefined, 'seed'] as const) {
+        expect(translateError(raw, { module })).toEqual({
+          code: 'UNABLE_TO_LOCK_ROW',
+          explanationKey: 'errors.rowLocked.metByTrigger.explanation',
+          actionKey: 'errors.rowLocked.action',
+          severity: 'warning',
+          docUrl: helpSearchUrlOf('UNABLE_TO_LOCK_ROW'),
+          docKind: 'search',
+        });
+      }
+    }
+    // A banner whose host sent the trigger's code says the same.
+    expect(bannerHintOf(NESTED_LOCKS[0], 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY')?.actionKey).toBe(
+      'errors.rowLocked.action',
+    );
+  });
+
+  it("keeps the automation's own hint for every other refusal of a trigger", () => {
+    expect(
+      translateError(
+        'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: ' +
+          'System.NullPointerException: Attempt to de-reference a null object',
+      ),
+    ).toMatchObject({
+      code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+      explanationKey: 'errors.automationRefused.explanation',
+      actionKey: 'errors.automationRefused.action',
+      severity: 'error',
+    });
   });
 
   it('reads the code in front of a message that runs over several lines with no full stop on its first', () => {

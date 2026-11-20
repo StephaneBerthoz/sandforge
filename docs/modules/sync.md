@@ -472,7 +472,7 @@ Before execution, the Review step shows:
   refuses them again, and the output channel says how many went again and
   were saved. A Frozen load, a clone from another org and a CSV import write
   through the same path
-- Per object, the records refused grouped by reason -- the status code and the fields it named, how many records, one example in the org's words, and what it means and what to do; a run keeps the refusals of the first 1,000 records refused per object, its history entry the first 50, and both say when they kept fewer than were refused
+- Per object, the records refused grouped by reason -- the status code and the fields it named, and under one code what the error catalogue explains apart, such as a lock a trigger's update met apart from the trigger failing, how many records, one example in the org's words, and what it means and what to do; a run keeps the refusals of the first 1,000 records refused per object, its history entry the first 50, and both say when they kept fewer than were refused
 
 ## Tips
 

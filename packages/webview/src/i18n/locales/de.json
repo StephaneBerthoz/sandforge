@@ -7747,6 +7747,12 @@
       "forge": {
         "explanation": "Die Ziel-Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt: ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Das ist meist vorübergehend.",
         "action": "Wiederholen Sie die fehlgeschlagenen Objekte. Kommt die Sperre wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze in der Ziel-Org schreiben, fertig sind, und wiederholen Sie dann."
+      },
+      "metByTrigger": {
+        "explanation": "Beim Speichern dieses Datensatzes versuchte ein Trigger der Org, in einen Datensatz zu schreiben, den die Org nicht sperren konnte: Ein anderer Vorgang hielt ihn in dem Moment. Dieser Datensatz wurde wegen dieser Sperre abgelehnt, nicht wegen eines Fehlers im Trigger. Das ist meist vorübergehend.",
+        "forge": {
+          "explanation": "Beim Speichern dieses Datensatzes versuchte ein Trigger der Ziel-Org, in einen Datensatz zu schreiben, den die Ziel-Org nicht sperren konnte: Ein anderer Vorgang hielt ihn in dem Moment — ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Dieser Datensatz wurde wegen dieser Sperre abgelehnt, nicht wegen eines Fehlers im Trigger. Das ist meist vorübergehend."
+        }
       }
     },
     "requestLimit": {

@@ -7747,6 +7747,12 @@
       "forge": {
         "explanation": "La org de destino no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento: un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Suele ser pasajero.",
         "action": "Reintente los objetos fallidos. Si el bloqueo vuelve, espere a que terminen los trabajos y las integraciones que escriben esos registros en la org de destino, y luego reintente."
+      },
+      "metByTrigger": {
+        "explanation": "Al guardar este registro, un desencadenador de la org intentó escribir en un registro que la org no pudo bloquear: otra operación lo tenía en ese momento. Este registro se rechazó por ese bloqueo, no por un error del desencadenador. Suele ser pasajero.",
+        "forge": {
+          "explanation": "Al guardar este registro, un desencadenador de la org de destino intentó escribir en un registro que la org de destino no pudo bloquear: otra operación lo tenía en ese momento — un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Este registro se rechazó por ese bloqueo, no por un error del desencadenador. Suele ser pasajero."
+        }
       }
     },
     "requestLimit": {

@@ -124,6 +124,21 @@ describe('groupRecordErrors', () => {
     );
   });
 
+  it("puts a trigger's refusal for a lock its update met apart from a trigger failing, under one code", () => {
+    const lock =
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+      'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+      'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []';
+    const failing =
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: ' +
+      'System.NullPointerException: Attempt to de-reference a null object';
+
+    expect(groupRecordErrors([lock, lock, failing, failing, failing])).toEqual([
+      { code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', fields: [], count: 3, example: failing },
+      { code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', fields: [], count: 2, example: lock },
+    ]);
+  });
+
   it('groups texts that name no code by their words', () => {
     expect(
       groupRecordErrors([

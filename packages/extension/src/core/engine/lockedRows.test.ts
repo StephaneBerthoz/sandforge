@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { translateError } from '@sandforge/shared';
 import {
   lockedRowsLine,
   lockResendDelay,
@@ -72,6 +73,33 @@ describe('refusedForALock', () => {
     expect(refusedForALock(['unable to obtain exclusive access to this record'])).toBe(false);
     expect(refusedForALock([LOCKED_REST, 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone'])).toBe(false);
     expect(refusedForALock([])).toBe(false);
+  });
+
+  /*
+   * The hint under a refused row is read by the shared catalogue, apart from
+   * this: a trigger's refusal for a lock went again here, then was explained
+   * as the trigger failing, and the reader told to fix it or turn it off.
+   */
+  it('reads a lock where the hint under the row speaks of one, and nowhere else', () => {
+    const refusals = [
+      LOCKED_REST,
+      LOCKED_BULK,
+      `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ${TRIGGER_MESSAGE}`,
+      `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY:${TRIGGER_MESSAGE}:--`,
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+        'System.NullPointerException: Attempt to de-reference a null object',
+      `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ${TRIGGER_MESSAGE.replace('UNABLE_TO_LOCK_ROW', 'FIELD_CUSTOM_VALIDATION_EXCEPTION')}`,
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+    ];
+    const read = refusals.map((refusal) => ({
+      refusal,
+      sentAgain: refusedForALock([refusal]),
+      hintOfALock:
+        translateError(refusal)?.explanationKey?.startsWith('errors.rowLocked.') ?? false,
+    }));
+    // Positive control: both readings meet a lock and something else.
+    expect(read.filter((r) => r.sentAgain)).toHaveLength(4);
+    expect(read.filter((r) => r.sentAgain !== r.hintOfALock)).toEqual([]);
   });
 });
 

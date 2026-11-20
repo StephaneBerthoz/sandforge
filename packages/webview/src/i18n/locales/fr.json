@@ -7747,6 +7747,12 @@
       "forge": {
         "explanation": "L'org cible n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment : un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. C'est en général passager.",
         "action": "Relancez les objets en échec. Si le verrou revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements dans l'org cible soient terminés, puis relancez."
+      },
+      "metByTrigger": {
+        "explanation": "Pendant la sauvegarde de cet enregistrement, un déclencheur de l'org a tenté d'écrire dans un enregistrement que l'org n'a pas pu verrouiller : une autre opération le tenait à ce moment. Cet enregistrement a été refusé pour ce verrou, pas pour une erreur du déclencheur. C'est en général passager.",
+        "forge": {
+          "explanation": "Pendant la sauvegarde de cet enregistrement, un déclencheur de l'org cible a tenté d'écrire dans un enregistrement que l'org cible n'a pas pu verrouiller : une autre opération le tenait à ce moment — un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. Cet enregistrement a été refusé pour ce verrou, pas pour une erreur du déclencheur. C'est en général passager."
+        }
       }
     },
     "requestLimit": {

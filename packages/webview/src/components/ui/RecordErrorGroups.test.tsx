@@ -97,6 +97,41 @@ describe('RecordErrorGroups', () => {
     );
   });
 
+  it("says what a lock a trigger's update met calls for under its group, and what a trigger failing calls for under the other", () => {
+    const lock =
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+      'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+      'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []';
+    const failing =
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: CaseTrigger: execution of BeforeInsert caused by: ' +
+      'System.NullPointerException: Attempt to de-reference a null object';
+    render(
+      <RecordErrorGroups
+        testIdPrefix="sync-result"
+        objectApiName="Contact"
+        errors={[lock, lock, failing]}
+        recordsFailed={3}
+      />,
+    );
+
+    const locked = screen.getByTestId('sync-result-error-group-Contact-0');
+    expect(locked.querySelector('summary')?.textContent).toBe(
+      '2 × CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+    );
+    const lockHint = within(locked).getByTestId('error-hint').textContent ?? '';
+    expect(lockHint).toContain(i18n.t('errors.rowLocked.metByTrigger.explanation'));
+    expect(lockHint).toContain(i18n.t('errors.rowLocked.action'));
+    expect(lockHint).not.toContain(i18n.t('errors.automationRefused.action'));
+
+    const failed = screen.getByTestId('sync-result-error-group-Contact-1');
+    expect(failed.querySelector('summary')?.textContent).toBe(
+      '1 × CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+    );
+    expect(within(failed).getByTestId('error-hint').textContent).toContain(
+      i18n.t('errors.automationRefused.action'),
+    );
+  });
+
   it('writes its reasons at the size of the page’s text, not ten pixels', () => {
     render(
       <RecordErrorGroups testIdPrefix="sync-result" objectApiName="Account" errors={['A_B: a']} />,

@@ -16,6 +16,8 @@
  * grouped by its words.
  */
 
+import { hintVariantOf } from './error-hints.js';
+
 /** One reason a run's records were refused. */
 export interface RecordErrorGroup {
   /** The status code the refusals carry, or null for a text that names none. */
@@ -80,7 +82,10 @@ export function parseRecordError(text: string): ParsedRecordError {
 
 /**
  * The refusals of a run grouped by code and fields, the group of the most
- * refusals first; two of as many in the order their first refusal came.
+ * refusals first; two of as many in the order their first refusal came. A
+ * code the error catalogue explains apart by its message is grouped apart by
+ * it too: a trigger's refusal for a lock its update met, and one for the
+ * trigger failing, came as one group, under the hint of whichever came first.
  */
 export function groupRecordErrors(errors: readonly string[]): RecordErrorGroup[] {
   const groups = new Map<string, RecordErrorGroup>();
@@ -89,7 +94,8 @@ export function groupRecordErrors(errors: readonly string[]): RecordErrorGroup[]
     const key =
       parsed.code === null
         ? `text:${parsed.message}`
-        : `code:${parsed.code}:${[...parsed.fields].sort().join(',')}`;
+        : `code:${parsed.code}:${[...parsed.fields].sort().join(',')}:` +
+          (hintVariantOf(parsed.code, error.trim()) ?? '');
     const group = groups.get(key);
     if (group) {
       group.count++;

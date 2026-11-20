@@ -413,6 +413,25 @@ describe('sendOperationFailed — fix suggestion', () => {
     });
   });
 
+  it("answers a trigger's refusal whose update met a lock with what a lock calls for, not with fixing the trigger", () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(
+      deps,
+      'op-1',
+      'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ParentRollup: execution of AfterInsert caused by: ' +
+        'System.DmlException: Update failed. First exception on row 0 with id 001000000000009AAA; ' +
+        'first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record: []',
+      true,
+    );
+
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith({
+      source: 'catalogue',
+      code: 'UNABLE_TO_LOCK_ROW',
+      actionKey: 'errors.rowLocked.action',
+    });
+  });
+
   it('answers the codes the host table never held, as the panel does', () => {
     const deps = createResolvingDeps();
 

@@ -211,10 +211,11 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     severity: 'error',
     keys: ['errors.fieldIntegrity.explanation', 'errors.fieldIntegrity.action'],
   },
-  // Every refusal under this code but an object that takes no insert (a
-  // variant) is the org's own automation — a trigger, a Flow, a process —
-  // failing on the record: told to leave the object out, the reader was sent
-  // away from the one thing to fix.
+  // Every refusal under this code but an object that takes no insert, a
+  // limit the call hit and a lock a trigger's update met (variants) is the
+  // org's own automation — a trigger, a Flow, a process — failing on the
+  // record: told to leave the object out, the reader was sent away from the
+  // one thing to fix.
   CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: {
     severity: 'error',
     keys: ['errors.automationRefused.explanation', 'errors.automationRefused.action'],
@@ -612,6 +613,19 @@ const GOVERNOR_LIMIT_ENTRY: Entry = {
 };
 
 /**
+ * How a trigger's refusal names the lock its own update met:
+ * `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: <trigger>: execution of AfterInsert
+ * caused by: System.DmlException: Update failed. First exception on row 0
+ * with id …; first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive
+ * access to this record: []`. The trigger threw, so the platform wrote none
+ * of the rows it ran for: the same lock, under another code. The writers
+ * that send a row refused for a lock again read it by this (`refusedForALock`
+ * in the extension), and the hint under the row by this too, so what the
+ * page says of a row is what the run did with it.
+ */
+export const LOCK_MET_BY_A_TRIGGER = /\bfirst error: UNABLE_TO_LOCK_ROW\b/;
+
+/**
  * Wordings of a code that hold for one kind of message only, tried before the
  * code's own entry.
  */
@@ -726,7 +740,38 @@ const VARIANTS: ReadonlyArray<{
       ],
     },
   },
+  // A trigger whose update met a lock: the trigger is not at fault, and the
+  // same write goes through once the other transaction lets go. Explained as
+  // the trigger failing, the reader was told to fix it or turn it off. Said
+  // under the lock's code, whose guide row and search speak of it, with the
+  // lock's next step.
+  {
+    code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+    match: LOCK_MET_BY_A_TRIGGER,
+    says: 'UNABLE_TO_LOCK_ROW',
+    entry: {
+      severity: 'warning',
+      keys: ['errors.rowLocked.metByTrigger.explanation', 'errors.rowLocked.action'],
+      forge: ['errors.rowLocked.metByTrigger.forge.explanation', 'errors.rowLocked.forge.action'],
+    },
+  },
 ];
+
+/** The message variant of `code` that `raw` takes, if any. */
+function variantOf(code: string, raw: string): (typeof VARIANTS)[number] | undefined {
+  return VARIANTS.find((v) => v.code === code && v.match.test(raw));
+}
+
+/**
+ * Which wording of its code a refusal takes, as an id: that of the message
+ * variant it matches — a limit the call hit, a lock a trigger's update met —
+ * or `undefined` for the code's own. Two refusals under one code that differ
+ * here are explained apart, and grouped apart.
+ */
+export function hintVariantOf(code: string, raw: string): string | undefined {
+  const variant = variantOf(code, raw);
+  return variant && `${variant.says}:${variant.entry.keys[0]}`;
+}
 
 /**
  * Forge's own notes and refusals of objects, worded by the run with no code
@@ -1050,7 +1095,7 @@ function hintOfCodeIn(
   raw: string,
   module: ErrorHintModule | undefined,
 ): ErrorHint | null {
-  const variant = VARIANTS.find((v) => v.code === code && v.match.test(raw));
+  const variant = variantOf(code, raw);
   if (variant) return hintOf(variant.says, variant.entry, module);
   const entry = entryOf(code);
   return entry ? hintOf(code, entry, module) : null;

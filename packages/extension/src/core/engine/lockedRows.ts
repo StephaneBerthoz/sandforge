@@ -18,6 +18,7 @@
  * retry of a call that failed whole is `RetryableOperation`'s.
  */
 
+import { LOCK_MET_BY_A_TRIGGER } from '@sandforge/shared';
 import type { SaveErrorDetail } from '../common/existingRecordMatch.js';
 import { RetryStrategy } from './RetryStrategy.js';
 
@@ -57,12 +58,12 @@ export const LOCK_RESENDS_NOT_COUNTED_LINE =
  * AfterInsert caused by: System.DmlException: Update failed. First exception
  * on row 0 with id …; first error: UNABLE_TO_LOCK_ROW, unable to obtain
  * exclusive access to this record: []`. The trigger threw, so the platform
- * wrote none of the rows it ran for: the same lock, under another code.
+ * wrote none of the rows it ran for: the same lock, under another code. Its
+ * message is read by the error catalogue's own pattern
+ * (`LOCK_MET_BY_A_TRIGGER`), so that the hint under a row sent again for a
+ * lock speaks of a lock.
  */
 const TRIGGER_REFUSAL = 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY';
-
-/** How a trigger's refusal names the lock its update met. */
-const LOCK_MET_BY_A_TRIGGER = /\bfirst error: UNABLE_TO_LOCK_ROW\b/;
 
 /** `STATUS_CODE: message`, as REST and the Bulk API both begin a refusal. */
 const CODED = /^([A-Z][A-Z0-9_]*):\s*([\s\S]*)$/;

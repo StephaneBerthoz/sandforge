@@ -216,6 +216,7 @@ export {
 } from './utils/sync-transform-fields.js';
 export {
   FORGE_GUIDE_URL,
+  LOCK_MET_BY_A_TRIGGER,
   SALESFORCE_HELP_SEARCH_URL,
   bannerHintOf,
   cataloguedErrorCodes,

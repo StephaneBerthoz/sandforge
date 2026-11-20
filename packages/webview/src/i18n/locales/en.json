@@ -7747,6 +7747,12 @@
       "forge": {
         "explanation": "The target org could not lock the record, or the record it hangs from, because another operation held it at that moment: a job, an integration, or the target's own automation still at work on records the clone had just written. It is usually transient.",
         "action": "Retry the failed objects. If the lock comes back, wait until the jobs and integrations writing those records in the target org have finished, then retry."
+      },
+      "metByTrigger": {
+        "explanation": "As this record was saved, a trigger of the org tried to write to a record the org could not lock: another operation held it at that moment. This record was refused for that lock, not for an error in the trigger. It is usually transient.",
+        "forge": {
+          "explanation": "As this record was saved, a trigger of the target org tried to write to a record the target could not lock: another operation held it at that moment — a job, an integration, or the target's own automation still at work on records the clone had just written. This record was refused for that lock, not for an error in the trigger. It is usually transient."
+        }
       }
     },
     "requestLimit": {
